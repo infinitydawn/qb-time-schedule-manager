@@ -24,3 +24,31 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@keyframes card-highlight {
+  0%   { outline: 3px solid transparent; outline-offset: 0px; background-color: transparent; }
+  15%  { outline: 3px solid rgba(59, 130, 246, 0.7); outline-offset: 2px; background-color: rgba(59, 130, 246, 0.04); }
+  30%  { outline: 3px solid rgba(59, 130, 246, 0.3); outline-offset: 1px; background-color: transparent; }
+  50%  { outline: 3px solid rgba(59, 130, 246, 0.6); outline-offset: 2px; background-color: rgba(59, 130, 246, 0.03); }
+  70%  { outline: 3px solid rgba(59, 130, 246, 0.2); outline-offset: 1px; background-color: transparent; }
+  85%  { outline: 3px solid rgba(59, 130, 246, 0.4); outline-offset: 1px; }
+  100% { outline: 3px solid transparent; outline-offset: 0px; background-color: transparent; }
+}
+
+.animate-card-highlight {
+  animation: card-highlight 1.2s ease-in-out !important;
+  border-radius: 0.5rem;
+}
+
+@keyframes date-blink {
+  0%   { background-color: white; }
+  20%  { background-color: rgba(59, 130, 246, 0.2); }
+  40%  { background-color: white; }
+  60%  { background-color: rgba(59, 130, 246, 0.15); }
+  80%  { background-color: white; }
+  100% { background-color: white; }
+}
+
+.animate-date-blink {
+  animation: date-blink 1.2s ease-in-out !important;
+}
