@@ -11,8 +11,16 @@ export default function Home() {
   const [schedules, setSchedules] = useState<DailySchedule[]>([]);
   const [showQBManager, setShowQBManager] = useState(false);
   const [dbStatus, setDbStatus] = useState<'loading' | 'ok' | 'error'>('loading');
-  const [filterFrom, setFilterFrom] = useState('');
-  const [filterTo, setFilterTo] = useState('');
+
+  // Default filter: last 7 days through next 7 days
+  const today = new Date();
+  const sevenDaysAgo = new Date(today);
+  sevenDaysAgo.setDate(today.getDate() - 7);
+  const sevenDaysAhead = new Date(today);
+  sevenDaysAhead.setDate(today.getDate() + 7);
+  const toISO = (d: Date) => d.toISOString().split('T')[0];
+  const [filterFrom, setFilterFrom] = useState(toISO(sevenDaysAgo));
+  const [filterTo, setFilterTo] = useState(toISO(sevenDaysAhead));
 
   const { isConnected, sendScheduleToQB, projectManagers, technicians, jobs } = useQBTime();
 
@@ -124,6 +132,7 @@ export default function Home() {
       id: newId,
       date: '',
       dayName: '',
+      sentToQB: false,
       projectManagers: schedule.projectManagers.map(pm => ({
         ...pm,
         id: `pm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
