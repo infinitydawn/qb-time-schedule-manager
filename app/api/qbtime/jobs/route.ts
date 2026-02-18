@@ -1,19 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
+import { getQBHeaders, TSHEETS_BASE } from '@/utils/qbtoken';
 
-const TSHEETS_BASE = 'https://rest.tsheets.com/api/v1';
-
-export async function POST(req: NextRequest) {
+export async function POST() {
   try {
-    const { token } = await req.json();
-
-    if (!token) {
-      return NextResponse.json({ error: 'API token is required' }, { status: 400 });
-    }
-
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    };
+    const headers = getQBHeaders();
 
     // Fetch active jobcodes (active=yes), page through results
     let allJobs: any[] = [];

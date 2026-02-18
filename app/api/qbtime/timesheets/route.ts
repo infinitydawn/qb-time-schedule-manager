@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const TSHEETS_BASE = 'https://rest.tsheets.com/api/v1';
+import { getQBHeaders, TSHEETS_BASE } from '@/utils/qbtoken';
 
 interface TimesheetEntry {
   user_id: number;
@@ -15,23 +14,15 @@ interface TimesheetEntry {
 
 export async function POST(req: NextRequest) {
   try {
-    const { token, entries } = (await req.json()) as {
-      token: string;
+    const { entries } = (await req.json()) as {
       entries: TimesheetEntry[];
     };
-
-    if (!token) {
-      return NextResponse.json({ error: 'API token is required' }, { status: 400 });
-    }
 
     if (!entries || entries.length === 0) {
       return NextResponse.json({ error: 'No timesheet entries provided' }, { status: 400 });
     }
 
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    };
+    const headers = getQBHeaders();
 
     // --- Step 1: Fetch ALL custom fields ---
     const fieldsRes = await fetch(`${TSHEETS_BASE}/customfields`, { headers });

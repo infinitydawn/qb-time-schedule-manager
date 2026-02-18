@@ -14,7 +14,7 @@ export default function Home() {
   const [filterFrom, setFilterFrom] = useState('');
   const [filterTo, setFilterTo] = useState('');
 
-  const { isConnected, sendScheduleToQB, projectManagers, technicians, jobs, token } = useQBTime();
+  const { isConnected, sendScheduleToQB, projectManagers, technicians, jobs } = useQBTime();
 
   // Map QB Time PMs and techs to name strings for DayCard
   const pmNames = projectManagers.map(pm => pm.name);

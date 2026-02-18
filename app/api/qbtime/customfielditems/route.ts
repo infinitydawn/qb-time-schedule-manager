@@ -1,26 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const TSHEETS_BASE = 'https://rest.tsheets.com/api/v1';
+import { getQBHeaders, TSHEETS_BASE } from '@/utils/qbtoken';
 
 export async function POST(req: NextRequest) {
   try {
-    const { token, customfield_id } = (await req.json()) as {
-      token: string;
+    const { customfield_id } = (await req.json()) as {
       customfield_id: string;
     };
-
-    if (!token) {
-      return NextResponse.json({ error: 'API token is required' }, { status: 400 });
-    }
 
     if (!customfield_id) {
       return NextResponse.json({ error: 'customfield_id is required' }, { status: 400 });
     }
 
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    };
+    const headers = getQBHeaders();
 
     // Fetch all items for this custom field, paginating if needed
     let allItems: any[] = [];

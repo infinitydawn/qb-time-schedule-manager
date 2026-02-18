@@ -3,18 +3,6 @@
 import React, { useState } from 'react';
 import { DailySchedule, ProjectManager, WorkerAssignment } from '@/types/schedule';
 
-const DEFAULT_PMS = [
-  'MENDY', 'SHABSI', 'TULY', 'RAFFI', 'SHULEM', 'JEDD'
-];
-
-const DEFAULT_EMPLOYEES = [
-  'Miguel', 'Francisco', 'Caydon', 'Victor G', 'Luis M.', 'Bryan',
-  'Jesus', 'Williams', 'Ansel', 'Luis', 'Ton', 'Kerwin', 'Jovany',
-  'Charles', 'Jimmy ty', 'Eliver', 'Kevin', 'Perez', 'Iqram', 'Lim',
-  'Winner', 'Diego', 'Jonathon', 'Ericson', 'Marcus', 'Javier',
-  'Christian', 'Jose L', 'Victor', 'Erick', 'Carlos', 'Merek'
-];
-
 const firstName = (name: string) => name.split(' ')[0];
 
 // Show only house number + street name, e.g. "3060 3rd Ave"
@@ -30,14 +18,6 @@ const shortJob = (job: string) => {
   const streetName = parts.slice(0, 3).join(' ');
   return `${m[1]} ${streetName}`;
 };
-
-const DEFAULT_JOBS = [
-  '3060 3rd Ave', '2745 Atlantic Ave', '1848 Billingsly St', '650 Southern Blvd',
-  '52 4th Street', '35 West 125th St', '355 Exterior St', '121 Mount Hope Pl',
-  '86-06 135th St', '89-61 162nd St', '104 Fleet Pl', '111 Livingston St',
-  '1527 Morris Ave', '772 Metropolitan Ave', '636 West 158th St', '1425 50th Ave',
-  'Office Work', 'Site Survey', 'Equipment Delivery', 'Maintenance Call'
-];
 
 interface JobRow {
   id: string;
@@ -63,9 +43,9 @@ interface DayCardProps {
 }
 
 const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy, onSendToQB, pmList, techList, jobList }) => {
-  const availablePMs = pmList && pmList.length > 0 ? pmList : DEFAULT_PMS;
-  const availableEmployees = techList && techList.length > 0 ? techList : DEFAULT_EMPLOYEES;
-  const availableJobs = jobList && jobList.length > 0 ? jobList : DEFAULT_JOBS;
+  const availablePMs = pmList ?? [];
+  const availableEmployees = techList ?? [];
+  const availableJobs = jobList ?? [];
   const [collapsed, setCollapsed] = useState(false);
   const [dateBlink, setDateBlink] = useState(false);
 

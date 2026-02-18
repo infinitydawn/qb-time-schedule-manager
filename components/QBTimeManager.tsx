@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useQBTime, QBTimePM } from '@/hooks/useQBTime';
+import React from 'react';
+import { useQBTime } from '@/hooks/useQBTime';
 
 interface QBTimeManagerProps {
   isOpen: boolean;
@@ -14,20 +14,10 @@ const QBTimeManager: React.FC<QBTimeManagerProps> = ({ isOpen, onClose }) => {
     error,
     isConnected,
     projectManagers,
-    connectToQB,
+    checkConnection,
     fetchProjectManagers,
     disconnect
   } = useQBTime();
-
-  const [token, setToken] = useState('');
-
-  const handleConnect = async () => {
-    if (!token.trim()) return;
-    const success = await connectToQB(token.trim());
-    if (success) {
-      setToken('');
-    }
-  };
 
   if (!isOpen) return null;
 
@@ -59,43 +49,32 @@ const QBTimeManager: React.FC<QBTimeManagerProps> = ({ isOpen, onClose }) => {
                 {isConnected ? 'Connected to QuickBooks Time' : 'Not Connected'}
               </span>
             </div>
-            {isConnected && (
-              <button
-                onClick={disconnect}
-                className="px-3 py-2 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 transition-colors"
-              >
-                Disconnect
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Token input — shown when not connected */}
-        {!isConnected && (
-          <div className="mb-6 p-4 border border-gray-200 rounded-md">
-            <h3 className="text-lg font-semibold mb-3">Connect with API Token</h3>
-            <p className="text-sm text-gray-500 mb-3">
-              Paste your TSheets / QuickBooks Time API bearer token below.
-            </p>
-            <div className="flex gap-3">
-              <input
-                type="password"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                placeholder="S.abc123…"
-              />
-              <button
-                onClick={handleConnect}
-                disabled={loading || !token.trim()}
-                className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed text-sm"
-              >
-                {loading ? 'Connecting…' : 'Connect'}
-              </button>
+            <div className="flex gap-2">
+              {!isConnected && (
+                <button
+                  onClick={checkConnection}
+                  disabled={loading}
+                  className="px-3 py-2 bg-blue-500 text-white text-sm rounded-md hover:bg-blue-600 transition-colors disabled:bg-gray-300"
+                >
+                  {loading ? 'Checking…' : 'Test Connection'}
+                </button>
+              )}
+              {isConnected && (
+                <button
+                  onClick={disconnect}
+                  className="px-3 py-2 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 transition-colors"
+                >
+                  Disconnect
+                </button>
+              )}
             </div>
           </div>
-        )}
+          {!isConnected && (
+            <p className="text-xs text-gray-500 mt-2">
+              Token is configured via the QBTIME_TOKEN environment variable on the server.
+            </p>
+          )}
+        </div>
 
         {/* Project Managers list */}
         {isConnected && (

@@ -21,10 +21,18 @@ export function getPool(): Pool {
       host: process.env.DB_HOST,
       port: Number(process.env.DB_PORT) || 26276,
       database: process.env.DB_NAME || 'defaultdb',
-      ssl: ca ? { rejectUnauthorized: true, ca } : { rejectUnauthorized: false },
+      ssl: ca
+        ? { rejectUnauthorized: true, ca }
+        : { rejectUnauthorized: false },
       max: 5,
       idleTimeoutMillis: 30000,
     });
+
+    // Allow connections to databases that use self-signed certificates
+    // when no explicit CA cert is provided
+    if (!ca) {
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    }
   }
   return pool;
 }

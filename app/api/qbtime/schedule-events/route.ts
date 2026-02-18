@@ -1,24 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const TSHEETS_BASE = 'https://rest.tsheets.com/api/v1';
+import { getQBHeaders, TSHEETS_BASE } from '@/utils/qbtoken';
 
 export async function POST(req: NextRequest) {
   try {
-    const { token, start, end, schedule_calendar_ids } = (await req.json()) as {
-      token: string;
+    const { start, end, schedule_calendar_ids } = (await req.json()) as {
       start?: string;
       end?: string;
       schedule_calendar_ids?: string;
     };
 
-    if (!token) {
-      return NextResponse.json({ error: 'API token is required' }, { status: 400 });
-    }
-
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    };
+    const headers = getQBHeaders();
 
     // First fetch schedule calendars to get their IDs (required param)
     const calRes = await fetch(`${TSHEETS_BASE}/schedule_calendars`, { headers });
@@ -32,7 +23,9 @@ export async function POST(req: NextRequest) {
     }
 
     const params = new URLSearchParams();
-    params.set('start', start || '2026-02-13T00:00:00-05:00');
+    // Default to 30 days ago if no start provided
+    const defaultStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    params.set('start', start || defaultStart);
     if (end) params.set('end', end);
     params.set('schedule_calendar_ids', schedule_calendar_ids || calIds.join(','));
     params.set('limit', '200');

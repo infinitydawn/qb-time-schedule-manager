@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const TSHEETS_BASE = 'https://rest.tsheets.com/api/v1';
+import { getQBHeaders, TSHEETS_BASE } from '@/utils/qbtoken';
 
 interface ScheduleEventEntry {
   assigned_user_ids: string[];
@@ -17,23 +16,15 @@ interface ScheduleEventEntry {
 
 export async function POST(req: NextRequest) {
   try {
-    const { token, entries } = (await req.json()) as {
-      token: string;
+    const { entries } = (await req.json()) as {
       entries: ScheduleEventEntry[];
     };
-
-    if (!token) {
-      return NextResponse.json({ error: 'API token is required' }, { status: 400 });
-    }
 
     if (!entries || entries.length === 0) {
       return NextResponse.json({ error: 'No schedule event entries provided' }, { status: 400 });
     }
 
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    };
+    const headers = getQBHeaders();
 
     // --- Step 1: Fetch schedule calendar ID ---
     const calRes = await fetch(`${TSHEETS_BASE}/schedule_calendars`, { headers });

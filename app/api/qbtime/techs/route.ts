@@ -1,19 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
+import { getQBHeaders, TSHEETS_BASE } from '@/utils/qbtoken';
 
-const TSHEETS_BASE = 'https://rest.tsheets.com/api/v1';
-
-export async function POST(req: NextRequest) {
+export async function POST() {
   try {
-    const { token } = await req.json();
-
-    if (!token) {
-      return NextResponse.json({ error: 'API token is required' }, { status: 400 });
-    }
-
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    };
+    const headers = getQBHeaders();
 
     // 1. Fetch all groups to find "TECHNICIANS"
     const groupsRes = await fetch(`${TSHEETS_BASE}/groups`, { headers });
@@ -28,10 +18,11 @@ export async function POST(req: NextRequest) {
     const groupsData = await groupsRes.json();
     const groups = groupsData.results?.groups || {};
 
-    // Find the "TECHNICIANS" group (case-insensitive)
+    // Find the technicians group (name configurable via env var)
+    const techGroupName = (process.env.QBTIME_TECH_GROUP || 'TECHNICIANS').toUpperCase();
     let techGroupId: string | null = null;
     for (const [id, group] of Object.entries(groups) as [string, any][]) {
-      if (group.name?.toUpperCase() === 'TECHNICIANS') {
+      if (group.name?.toUpperCase() === techGroupName) {
         techGroupId = id;
         break;
       }
@@ -39,7 +30,7 @@ export async function POST(req: NextRequest) {
 
     if (!techGroupId) {
       return NextResponse.json(
-        { error: 'Group "TECHNICIANS" not found', availableGroups: Object.values(groups).map((g: any) => g.name) },
+        { error: `Group "${techGroupName}" not found`, availableGroups: Object.values(groups).map((g: any) => g.name) },
         { status: 404 }
       );
     }

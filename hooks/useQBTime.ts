@@ -3,8 +3,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { DailySchedule } from '@/types/schedule';
 
-const TOKEN_KEY = 'qbtime_token';
-
 export interface QBTimePM {
   id: string;
   name: string;
@@ -38,11 +36,10 @@ interface UseQBTimeReturn {
   loading: boolean;
   error: string | null;
   isConnected: boolean;
-  token: string | null;
   projectManagers: QBTimePM[];
   technicians: QBTimeTech[];
   jobs: QBTimeJob[];
-  connectToQB: (token: string) => Promise<boolean>;
+  checkConnection: () => Promise<boolean>;
   fetchProjectManagers: () => Promise<void>;
   fetchTechnicians: () => Promise<void>;
   fetchJobs: () => Promise<void>;
@@ -54,33 +51,41 @@ export const useQBTime = (): UseQBTimeReturn => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [token, setToken] = useState<string | null>(null);
   const [projectManagers, setProjectManagers] = useState<QBTimePM[]>([]);
   const [technicians, setTechnicians] = useState<QBTimeTech[]>([]);
   const [jobs, setJobs] = useState<QBTimeJob[]>([]);
   const [customFields, setCustomFields] = useState<QBCustomField[]>([]);
 
-  // Restore token from localStorage on mount
+  // Check whether the server has a QB token configured
   useEffect(() => {
-    const saved = localStorage.getItem(TOKEN_KEY);
-    if (saved) {
-      setToken(saved);
-      setIsConnected(true);
-    }
+    (async () => {
+      try {
+        const res = await fetch('/api/qbtime/token');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.configured) {
+            setIsConnected(true);
+          }
+        }
+      } catch {
+        // server unavailable
+      }
+    })();
   }, []);
 
-  // Auto-fetch PMs and techs when connected
+  // Auto-fetch PMs, techs, jobs when connected
   useEffect(() => {
-    if (isConnected && token) {
+    if (isConnected) {
       if (projectManagers.length === 0) fetchProjectManagers();
       if (technicians.length === 0) fetchTechnicians();
       if (jobs.length === 0) fetchJobs();
       if (customFields.length === 0) fetchCustomFields();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConnected, token]);
+  }, [isConnected]);
 
-  const connectToQB = useCallback(async (apiToken: string): Promise<boolean> => {
+  /** Verify the server-side token works against TSheets */
+  const checkConnection = useCallback(async (): Promise<boolean> => {
     setLoading(true);
     setError(null);
 
@@ -88,7 +93,7 @@ export const useQBTime = (): UseQBTimeReturn => {
       const res = await fetch('/api/qbtime/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: apiToken }),
+        body: JSON.stringify({}),
       });
 
       const data = await res.json();
@@ -99,9 +104,6 @@ export const useQBTime = (): UseQBTimeReturn => {
         return false;
       }
 
-      // Save token
-      localStorage.setItem(TOKEN_KEY, apiToken);
-      setToken(apiToken);
       setIsConnected(true);
       setLoading(false);
       return true;
@@ -113,9 +115,8 @@ export const useQBTime = (): UseQBTimeReturn => {
   }, []);
 
   const fetchProjectManagers = useCallback(async (): Promise<void> => {
-    const currentToken = token || localStorage.getItem(TOKEN_KEY);
-    if (!currentToken) {
-      setError('Not connected — enter your API token first');
+    if (!isConnected) {
+      setError('Not connected — QB token not configured on server');
       return;
     }
 
@@ -126,7 +127,7 @@ export const useQBTime = (): UseQBTimeReturn => {
       const res = await fetch('/api/qbtime/pms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: currentToken }),
+        body: JSON.stringify({}),
       });
 
       const data = await res.json();
@@ -143,12 +144,11 @@ export const useQBTime = (): UseQBTimeReturn => {
       setError(err instanceof Error ? err.message : 'Failed to fetch project managers');
       setLoading(false);
     }
-  }, [token]);
+  }, [isConnected]);
 
   const fetchTechnicians = useCallback(async (): Promise<void> => {
-    const currentToken = token || localStorage.getItem(TOKEN_KEY);
-    if (!currentToken) {
-      setError('Not connected — enter your API token first');
+    if (!isConnected) {
+      setError('Not connected — QB token not configured on server');
       return;
     }
 
@@ -159,7 +159,7 @@ export const useQBTime = (): UseQBTimeReturn => {
       const res = await fetch('/api/qbtime/techs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: currentToken }),
+        body: JSON.stringify({}),
       });
 
       const data = await res.json();
@@ -176,12 +176,11 @@ export const useQBTime = (): UseQBTimeReturn => {
       setError(err instanceof Error ? err.message : 'Failed to fetch technicians');
       setLoading(false);
     }
-  }, [token]);
+  }, [isConnected]);
 
   const fetchJobs = useCallback(async (): Promise<void> => {
-    const currentToken = token || localStorage.getItem(TOKEN_KEY);
-    if (!currentToken) {
-      setError('Not connected \u2014 enter your API token first');
+    if (!isConnected) {
+      setError('Not connected — QB token not configured on server');
       return;
     }
 
@@ -192,7 +191,7 @@ export const useQBTime = (): UseQBTimeReturn => {
       const res = await fetch('/api/qbtime/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: currentToken }),
+        body: JSON.stringify({}),
       });
 
       const data = await res.json();
@@ -209,17 +208,16 @@ export const useQBTime = (): UseQBTimeReturn => {
       setError(err instanceof Error ? err.message : 'Failed to fetch jobs');
       setLoading(false);
     }
-  }, [token]);
+  }, [isConnected]);
 
   const fetchCustomFields = useCallback(async (): Promise<void> => {
-    const currentToken = token || localStorage.getItem(TOKEN_KEY);
-    if (!currentToken) return;
+    if (!isConnected) return;
 
     try {
       const res = await fetch('/api/qbtime/customfields', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: currentToken }),
+        body: JSON.stringify({}),
       });
 
       const data = await res.json();
@@ -230,12 +228,12 @@ export const useQBTime = (): UseQBTimeReturn => {
     } catch (err) {
       console.error('Failed to fetch custom fields:', err);
     }
-  }, [token]);
+  }, [isConnected]);
 
   const sendScheduleToQB = useCallback(async (
     schedule: DailySchedule
   ): Promise<{ success: boolean; created: number; failed: number; errors?: any[] }> => {
-    if (!isConnected || !token) {
+    if (!isConnected) {
       setError('Not connected to QuickBooks Time');
       return { success: false, created: 0, failed: 0 };
     }
@@ -356,7 +354,7 @@ export const useQBTime = (): UseQBTimeReturn => {
       const res = await fetch('/api/qbtime/create-schedule-events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, entries }),
+        body: JSON.stringify({ entries }),
       });
 
       const data = await res.json();
@@ -381,11 +379,9 @@ export const useQBTime = (): UseQBTimeReturn => {
       setLoading(false);
       return { success: false, created: 0, failed: 0 };
     }
-  }, [isConnected, token, technicians, jobs]);
+  }, [isConnected, technicians, jobs]);
 
   const disconnect = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
-    setToken(null);
     setIsConnected(false);
     setProjectManagers([]);
     setTechnicians([]);
@@ -398,11 +394,10 @@ export const useQBTime = (): UseQBTimeReturn => {
     loading,
     error,
     isConnected,
-    token,
     projectManagers,
     technicians,
     jobs,
-    connectToQB,
+    checkConnection,
     fetchProjectManagers,
     fetchTechnicians,
     fetchJobs,

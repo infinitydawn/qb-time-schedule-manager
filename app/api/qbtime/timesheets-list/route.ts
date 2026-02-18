@@ -1,24 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const TSHEETS_BASE = 'https://rest.tsheets.com/api/v1';
+import { getQBHeaders, TSHEETS_BASE } from '@/utils/qbtoken';
 
 export async function POST(req: NextRequest) {
   try {
-    const { token, start_date, end_date, limit } = (await req.json()) as {
-      token: string;
+    const { start_date, end_date, limit } = (await req.json()) as {
       start_date?: string;
       end_date?: string;
       limit?: number;
     };
 
-    if (!token) {
-      return NextResponse.json({ error: 'API token is required' }, { status: 400 });
-    }
-
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    };
+    const headers = getQBHeaders();
 
     // Build query params
     const params = new URLSearchParams();
