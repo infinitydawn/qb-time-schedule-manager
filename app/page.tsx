@@ -244,16 +244,17 @@ export default function Home() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="container mx-auto px-4 py-6">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800">Work Schedule Manager</h1>
-              <p className="text-gray-600 mt-1">Manage daily work schedules &amp; sync with QuickBooks Time</p>
+        <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
+          {/* Title row */}
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-3xl font-bold text-gray-800 truncate">Work Schedule Manager</h1>
+              <p className="text-gray-600 text-xs sm:text-base mt-0.5 sm:mt-1 hidden sm:block">Manage daily work schedules &amp; sync with QuickBooks Time</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
               <button
                 onClick={() => setShowQBManager(true)}
-                className={`px-4 py-2 rounded-md transition-colors ${
+                className={`px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md transition-colors ${
                   isConnected
                     ? 'bg-green-500 text-white hover:bg-green-600'
                     : 'bg-yellow-500 text-white hover:bg-yellow-600'
@@ -277,45 +278,45 @@ export default function Home() {
           </div>
 
           {/* Stats */}
-          <div className="mt-5 flex gap-4 items-center flex-wrap">
-            <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white px-5 py-3 rounded-lg">
-              <span className="text-2xl font-bold mr-2">{filteredSchedules.length}</span>
-              <span className="text-blue-100 text-sm">Days{(filterFrom || filterTo) ? ' (filtered)' : ''}</span>
+          <div className="mt-3 sm:mt-5 flex gap-2 sm:gap-4 items-center flex-wrap">
+            <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white px-3 sm:px-5 py-2 sm:py-3 rounded-lg">
+              <span className="text-lg sm:text-2xl font-bold mr-1 sm:mr-2">{filteredSchedules.length}</span>
+              <span className="text-blue-100 text-xs sm:text-sm">Days{(filterFrom || filterTo) ? ' (filtered)' : ''}</span>
             </div>
-            <div className="bg-gradient-to-r from-green-500 to-green-600 text-white px-5 py-3 rounded-lg">
-              <span className="text-2xl font-bold mr-2">{filteredWorkers}</span>
-              <span className="text-green-100 text-sm">Workers</span>
+            <div className="bg-gradient-to-r from-green-500 to-green-600 text-white px-3 sm:px-5 py-2 sm:py-3 rounded-lg">
+              <span className="text-lg sm:text-2xl font-bold mr-1 sm:mr-2">{filteredWorkers}</span>
+              <span className="text-green-100 text-xs sm:text-sm">Workers</span>
             </div>
             <button
               onClick={exportSchedule}
-              className="bg-gradient-to-r from-purple-500 to-purple-600 text-white px-5 py-3 rounded-lg hover:from-purple-600 hover:to-purple-700 transition-colors font-semibold text-sm"
+              className="bg-gradient-to-r from-purple-500 to-purple-600 text-white px-3 sm:px-5 py-2 sm:py-3 rounded-lg hover:from-purple-600 hover:to-purple-700 transition-colors font-semibold text-xs sm:text-sm"
             >
-              Export Schedule
+              Export
             </button>
           </div>
 
           {/* Date range filter */}
-          <div className="mt-4 flex items-center gap-3 flex-wrap">
-            <span className="text-sm font-medium text-gray-600">Filter dates:</span>
+          <div className="mt-3 sm:mt-4 flex items-center gap-2 sm:gap-3 flex-wrap">
+            <span className="text-xs sm:text-sm font-medium text-gray-600">Filter:</span>
             <input
               type="date"
               value={filterFrom}
               onChange={e => setFilterFrom(e.target.value)}
-              className="px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
             />
-            <span className="text-gray-400">to</span>
+            <span className="text-gray-400 text-xs sm:text-sm">to</span>
             <input
               type="date"
               value={filterTo}
               onChange={e => setFilterTo(e.target.value)}
-              className="px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
             />
             {(filterFrom || filterTo) && (
               <button
                 onClick={() => { setFilterFrom(''); setFilterTo(''); }}
-                className="px-3 py-1.5 text-xs bg-gray-200 text-gray-600 rounded hover:bg-gray-300 transition-colors"
+                className="px-2 sm:px-3 py-1 sm:py-1.5 text-xs bg-gray-200 text-gray-600 rounded hover:bg-gray-300 transition-colors"
               >
-                Clear filter
+                Clear
               </button>
             )}
           </div>
@@ -323,7 +324,7 @@ export default function Home() {
       </header>
 
       {/* Main */}
-      <main className="container mx-auto px-4 py-8 space-y-4">
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 space-y-3 sm:space-y-4">
         {/* Add Day button */}
         <button
           onClick={addDay}

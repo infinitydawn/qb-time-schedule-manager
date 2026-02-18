@@ -170,33 +170,33 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
     }`}>
       {/* Card header — always visible */}
       <div
-        className={`flex items-center justify-between px-5 py-3 border-b cursor-pointer select-none ${
+        className={`flex flex-col sm:flex-row sm:items-center sm:justify-between px-3 sm:px-5 py-2 sm:py-3 border-b cursor-pointer select-none gap-2 ${
           schedule.sentToQB ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'
         }`}
         onClick={() => setCollapsed(!collapsed)}
       >
-      <div className="flex items-center gap-3">
-          <span className="text-gray-500 text-sm">{collapsed ? '▶' : '▼'}</span>
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <span className="text-gray-500 text-xs sm:text-sm">{collapsed ? '▶' : '▼'}</span>
           {schedule.sentToQB && (
             <span className="text-green-600 text-sm" title="Sent to QuickBooks Time">✓</span>
           )}
-          <h3 className={`text-lg font-bold ${schedule.sentToQB ? 'text-green-700' : 'text-blue-700'}`}>
+          <h3 className={`text-sm sm:text-lg font-bold truncate ${schedule.sentToQB ? 'text-green-700' : 'text-blue-700'}`}>
             {schedule.dayName || 'New Day'}
           </h3>
           {schedule.date && (
-            <span className="text-sm text-blue-500">
-              {parseLocalDate(schedule.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            <span className="text-xs sm:text-sm text-blue-500 flex-shrink-0">
+              {parseLocalDate(schedule.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
             </span>
           )}
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-gray-500 hidden sm:inline">
             · {schedule.projectManagers.length} PM(s) · {totalWorkers} worker(s)
           </span>
         </div>
 
-        <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
           <button
             onClick={onSendToQB}
-            className={`px-3 py-1 text-xs rounded ${
+            className={`px-2 sm:px-3 py-1 text-xs rounded ${
               schedule.sentToQB
                 ? 'bg-green-700 text-white hover:bg-green-800'
                 : 'bg-green-500 text-white hover:bg-green-600'
@@ -206,13 +206,13 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
           </button>
           <button
             onClick={onCopy}
-            className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
+            className="px-2 sm:px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
           >
             Copy
           </button>
           <button
             onClick={onDelete}
-            className="px-3 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600"
+            className="px-2 sm:px-3 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600"
           >
             Delete
           </button>
@@ -238,18 +238,18 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
 
       {/* Card body — collapsible */}
       {!collapsed && (
-        <div className="p-5 space-y-5">
+        <div className="p-3 sm:p-5 space-y-3 sm:space-y-5">
           {/* Date picker */}
-          <div className="flex items-center gap-4">
-            <label className="text-sm font-medium text-gray-600">Date</label>
+          <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
+            <label className="text-xs sm:text-sm font-medium text-gray-600">Date</label>
             <input
               type="date"
               value={schedule.date}
               onChange={e => updateDate(e.target.value)}
-              className={`px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400 ${dateBlink ? 'animate-date-blink' : ''}`}
+              className={`px-2 sm:px-3 py-1 sm:py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400 ${dateBlink ? 'animate-date-blink' : ''}`}
             />
             {schedule.dayName && (
-              <span className="text-sm font-semibold text-blue-600">{schedule.dayName}</span>
+              <span className="text-xs sm:text-sm font-semibold text-blue-600">{schedule.dayName}</span>
             )}
           </div>
 
@@ -312,28 +312,30 @@ const PMBlock: React.FC<PMBlockProps> = ({
     <div className="border border-gray-200 rounded-lg overflow-hidden">
       {/* PM header */}
       <div
-        className="flex items-center gap-3 bg-indigo-50 px-4 py-2 border-b border-indigo-200 cursor-pointer select-none"
+        className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 bg-indigo-50 px-3 sm:px-4 py-2 border-b border-indigo-200 cursor-pointer select-none"
         onClick={() => setCollapsed(!collapsed)}
       >
-        <span className="text-gray-500 text-xs">{collapsed ? '▶' : '▼'}</span>
-        <div onClick={e => e.stopPropagation()}>
-          <select
-            value={pm.name}
-            onChange={e => onUpdateName(e.target.value)}
-            className="px-2 py-1 text-sm font-bold border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400"
-          >
-            <option value="">Select PM</option>
-            {availablePMs.map(p => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <span className="text-gray-500 text-xs">{collapsed ? '▶' : '▼'}</span>
+          <div onClick={e => e.stopPropagation()}>
+            <select
+              value={pm.name}
+              onChange={e => onUpdateName(e.target.value)}
+              className="px-2 py-1 text-sm font-bold border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 max-w-[160px] sm:max-w-none"
+            >
+              <option value="">Select PM</option>
+              {availablePMs.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          </div>
+          <span className="text-xs text-gray-500 flex-shrink-0">
+            {pm.assignments.length} job(s) · {workerCount} worker(s)
+          </span>
         </div>
-        <span className="text-xs text-gray-500">
-          {pm.assignments.length} job(s) · {workerCount} worker(s)
-        </span>
         <button
           onClick={e => { e.stopPropagation(); onRemove(); }}
-          className="ml-auto text-red-400 hover:text-red-600 text-sm"
+          className="sm:ml-auto text-red-400 hover:text-red-600 text-xs sm:text-sm self-end sm:self-auto"
         >
           remove PM
         </button>
@@ -444,7 +446,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
       {/* Expanded body */}
       {!collapsed && (
         <div className="px-3 pb-3 space-y-2">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
             {/* Employee selector toggle */}
             <button
               onClick={() => { setShowEmployees(!showEmployees); setTechSearch(''); }}
@@ -457,20 +459,20 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
               )}
             </button>
 
-            <span className="text-gray-400">–</span>
+            <span className="text-gray-400 hidden sm:inline">–</span>
 
             {/* Searchable Job dropdown */}
             <div ref={jobRef} className="relative">
               <button
                 type="button"
                 onClick={() => { setShowJobDropdown(!showJobDropdown); setJobSearch(''); }}
-                className="px-2 py-1.5 text-sm border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 min-w-[180px] text-left truncate"
+                className="w-full sm:w-auto px-2 py-1.5 text-sm border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 sm:min-w-[180px] text-left truncate"
               >
                 {assignment.job || <span className="text-gray-400">Select job</span>}
               </button>
 
               {showJobDropdown && (
-                <div className="absolute z-20 mt-1 w-64 bg-white border border-gray-300 rounded shadow-lg">
+                <div className="absolute z-20 mt-1 w-full sm:w-64 bg-white border border-gray-300 rounded shadow-lg">
                   <input
                     type="text"
                     autoFocus
@@ -524,7 +526,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
               />
               <div className="p-2 max-h-36 overflow-y-auto">
                 {filteredEmployees.length > 0 ? (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-1">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1">
                     {filteredEmployees.map(emp => (
                       <label key={emp} className="flex items-center gap-1 text-xs cursor-pointer hover:bg-gray-100 p-1 rounded">
                         <input
