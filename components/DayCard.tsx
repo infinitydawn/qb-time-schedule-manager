@@ -46,7 +46,7 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
   const availablePMs = pmList ?? [];
   const availableEmployees = techList ?? [];
   const availableJobs = jobList ?? [];
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [dateBlink, setDateBlink] = useState(false);
 
   const parseLocalDate = (dateStr: string) => {
@@ -165,7 +165,7 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
   );
 
   return (
-    <div className={`bg-white border rounded-lg shadow-sm overflow-hidden ${
+    <div className={`bg-white border rounded-lg shadow-sm ${
       schedule.sentToQB ? 'border-green-400 ring-1 ring-green-200' : 'border-gray-300'
     }`}>
       {/* Card header — always visible */}
@@ -309,7 +309,7 @@ const PMBlock: React.FC<PMBlockProps> = ({
   const workerCount = pm.assignments.reduce((t, a) => t + a.workers.length, 0);
 
   return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden">
+    <div className="border border-gray-200 rounded-lg">
       {/* PM header */}
       <div
         className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 bg-indigo-50 px-3 sm:px-4 py-2 border-b border-indigo-200 cursor-pointer select-none"
@@ -427,7 +427,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
   const summaryText = `${assignment.workers.length > 0 ? assignment.workers.map(firstName).join(', ') : '(no workers)'} – ${shortJob(assignment.job)}`;
 
   return (
-    <div className="border border-gray-200 rounded bg-gray-50 overflow-hidden">
+    <div className="border border-gray-200 rounded bg-gray-50">
       {/* Job row header — always visible, clickable to collapse */}
       <div
         className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none"
@@ -472,7 +472,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
               </button>
 
               {showJobDropdown && (
-                <div className="absolute z-20 mt-1 w-full sm:w-64 bg-white border border-gray-300 rounded shadow-lg">
+                <div className="absolute z-50 mt-1 w-full sm:w-64 bg-white border border-gray-300 rounded shadow-lg">
                   <input
                     type="text"
                     autoFocus

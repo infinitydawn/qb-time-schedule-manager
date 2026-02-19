@@ -208,7 +208,12 @@ export default function Home() {
       return;
     }
 
-    const sorted = [...filteredSchedules].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    const sorted = [...filteredSchedules].sort((a, b) => {
+      if (!a.date && !b.date) return 0;
+      if (!a.date) return 1;
+      if (!b.date) return -1;
+      return a.date.localeCompare(b.date);
+    });
     const parseLocal = (d: string) => { const [y, m, dd] = d.split('-').map(Number); return new Date(y, m - 1, dd); };
 
     const sections: string[] = [];
@@ -350,7 +355,12 @@ export default function Home() {
           </div>
         )}
 
-        {[...filteredSchedules].sort((a, b) => (a.date || '').localeCompare(b.date || '')).map(schedule => (
+        {[...filteredSchedules].sort((a, b) => {
+          if (!a.date && !b.date) return 0;
+          if (!a.date) return 1;
+          if (!b.date) return -1;
+          return a.date.localeCompare(b.date);
+        }).map(schedule => (
           <div key={schedule.id} id={`daycard-${schedule.id}`}>
             <DayCard
               schedule={schedule}
