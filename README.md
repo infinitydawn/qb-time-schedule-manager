@@ -1,6 +1,6 @@
 # Simple Work Schedule Manager
 
-A simplified app to create daily work schedules and integrate with QuickBooks Time.
+A simplified app to create daily work schedules and integrate with QuickBooks Time..
 
 ## Features
 
