@@ -50,6 +50,26 @@ export default function Home() {
         loaded = loadSchedules();
         setDbStatus('error');
       }
+      // Auto-cleanup: keep only the 10 newest entries
+      if (loaded.length > 10) {
+        // Sort by date descending (undated entries are oldest)
+        const sorted = [...loaded].sort((a, b) => {
+          if (!a.date && !b.date) return 0;
+          if (!a.date) return 1;
+          if (!b.date) return -1;
+          return b.date.localeCompare(a.date);
+        });
+        const toDelete = sorted.slice(10);
+        const deleteCount = toDelete.length;
+        const confirmed = window.confirm(
+          `There are ${loaded.length} schedule entries. ${deleteCount} old entr${deleteCount === 1 ? 'y' : 'ies'} will be deleted to keep only the 10 newest.\n\nProceed?`
+        );
+        if (confirmed) {
+          const keepIds = new Set(sorted.slice(0, 10).map(s => s.id));
+          loaded = loaded.filter(s => keepIds.has(s.id));
+        }
+      }
+
       setSchedules(loaded);
       // Seed prevDatesRef so existing cards don't trigger highlight on first render
       const dateMap: Record<string, string> = {};

@@ -148,11 +148,18 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
     }
 
     // Adding — check if already assigned elsewhere in the same day
-    const alreadyUsed = schedule.projectManagers.some(pm =>
-      pm.assignments.some(a => a.id !== jobId && a.workers.includes(worker))
+    const conflictingJobs: string[] = [];
+    schedule.projectManagers.forEach(pm =>
+      pm.assignments.forEach(a => {
+        if (a.id !== jobId && a.workers.includes(worker)) {
+          conflictingJobs.push(a.job || '(no job)');
+        }
+      })
     );
 
-    if (alreadyUsed && !window.confirm(`${worker} is already assigned to another job today. Are you sure?`)) {
+    if (conflictingJobs.length > 0 && !window.confirm(
+      `${worker} is already assigned to:\n${conflictingJobs.map(j => `  • ${j}`).join('\n')}\n\nAssign to this job as well?`
+    )) {
       return;
     }
 
@@ -420,9 +427,9 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
     job.toLowerCase().includes(jobSearch.toLowerCase())
   );
 
-  const filteredEmployees = availableEmployees.filter(emp =>
-    emp.toLowerCase().includes(techSearch.toLowerCase())
-  );
+  const filteredEmployees = availableEmployees
+    .filter(emp => emp.toLowerCase().includes(techSearch.toLowerCase()))
+    .sort((a, b) => a.localeCompare(b));
 
   const summaryText = `${assignment.workers.length > 0 ? assignment.workers.map(firstName).join(', ') : '(no workers)'} – ${shortJob(assignment.job)}`;
 
@@ -524,9 +531,9 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
                 placeholder="Search techs..."
                 className="w-full px-3 py-2 text-sm border-b border-gray-200 focus:outline-none"
               />
-              <div className="p-2 max-h-36 overflow-y-auto">
+              <div className="p-2">
                 {filteredEmployees.length > 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1">
+                  <div className="columns-2 sm:columns-3 md:columns-4 gap-1">
                     {filteredEmployees.map(emp => (
                       <label key={emp} className="flex items-center gap-1 text-xs cursor-pointer hover:bg-gray-100 p-1 rounded">
                         <input
