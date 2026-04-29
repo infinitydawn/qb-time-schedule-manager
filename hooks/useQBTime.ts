@@ -251,14 +251,23 @@ export const useQBTime = (): UseQBTimeReturn => {
         '#CDC8A2', '#6A5E72', '#888888', '#010101',
       ];
       const dateParts = schedule.date.split('-').map(Number);
-      const d = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
-      d.setDate(d.getDate() + 4 - (d.getDay() || 7)); // Thursday of this week
-      const yearStart = new Date(d.getFullYear(), 0, 1);
-      const weekNum = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-      const eventColor = SCHEDULE_COLORS[weekNum % SCHEDULE_COLORS.length];
+      const dt = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
+      // Use a week window that starts on Thursday so the same color applies
+      // for dates from Thursday -> Wednesday (i.e. grouping anchored to Thursday).
+      const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+      const day = dt.getDay(); // 0 (Sun) - 6 (Sat)
+      // days since the most recent Thursday (0 if dt is Thursday)
+      const daysSinceThursday = (day - 4 + 7) % 7;
+      const weekStart = new Date(dt);
+      weekStart.setDate(dt.getDate() - daysSinceThursday);
+      const weekIndex = Math.floor(weekStart.getTime() / WEEK_MS);
+      const colorIndex = ((weekIndex % SCHEDULE_COLORS.length) + SCHEDULE_COLORS.length) % SCHEDULE_COLORS.length;
+      const eventColor = SCHEDULE_COLORS[colorIndex];
 
       // Build one schedule event per job assignment (all techs as assigned_user_ids)
       const entries: any[] = [];
+      const assignmentIds: string[] = [];
+      const assignmentHashes: Record<string, string> = {};
 
       for (const pm of schedule.projectManagers) {
         for (const assignment of pm.assignments) {
@@ -327,7 +336,23 @@ export const useQBTime = (): UseQBTimeReturn => {
           const startISO = `${schedule.date}T08:00:00${offset}`;
           const endISO = `${schedule.date}T16:00:00${offset}`;
 
+          // Compute a stable hash for this assignment (job + workers) to help server detect changes
+          const assignmentPayload = { job: assignment.job || '', workers: [...assignment.workers].sort() };
+          let assignmentHash = '';
+          try {
+            const enc = new TextEncoder();
+            const buf = enc.encode(JSON.stringify(assignmentPayload));
+            const hashBuf = await crypto.subtle.digest('SHA-256', buf);
+            assignmentHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+          } catch (e) {
+            // fallback to JSON string if crypto unavailable
+            assignmentHash = JSON.stringify(assignmentPayload);
+          }
+          assignmentIds.push(assignment.id);
+          assignmentHashes[assignment.id] = assignmentHash;
+
           entries.push({
+            assignmentId: assignment.id,
             assigned_user_ids: assignedUserIds,
             jobcode_id: Number(jobMatch.id),
             start: startISO,
@@ -354,7 +379,13 @@ export const useQBTime = (): UseQBTimeReturn => {
       const res = await fetch('/api/qbtime/create-schedule-events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entries }),
+        body: JSON.stringify({
+          schedule: schedule,
+          scheduleId: schedule.id,
+          entries,
+          assignmentIds,
+          assignmentHashes,
+        }),
       });
 
       const data = await res.json();

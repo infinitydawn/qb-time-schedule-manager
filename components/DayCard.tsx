@@ -203,9 +203,10 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
         <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
           <button
             onClick={onSendToQB}
+            disabled={!!schedule.sentToQB}
             className={`px-2 sm:px-3 py-1 text-xs rounded ${
               schedule.sentToQB
-                ? 'bg-green-700 text-white hover:bg-green-800'
+                ? 'bg-green-700 text-white opacity-60 cursor-not-allowed'
                 : 'bg-green-500 text-white hover:bg-green-600'
             }`}
           >

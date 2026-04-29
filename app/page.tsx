@@ -37,11 +37,13 @@ export default function Home() {
   useEffect(() => {
     (async () => {
       let loaded: DailySchedule[] = [];
+      let loadedFromDb = false;
       try {
         const res = await fetch('/api/schedules');
         if (res.ok) {
           loaded = await res.json();
           setDbStatus('ok');
+          loadedFromDb = true;
         } else {
           throw new Error('DB fetch failed');
         }
@@ -50,23 +52,27 @@ export default function Home() {
         loaded = loadSchedules();
         setDbStatus('error');
       }
-      // Auto-cleanup: keep only the 10 newest entries
-      if (loaded.length > 10) {
-        // Sort by date descending (undated entries are oldest)
-        const sorted = [...loaded].sort((a, b) => {
-          if (!a.date && !b.date) return 0;
-          if (!a.date) return 1;
-          if (!b.date) return -1;
-          return b.date.localeCompare(a.date);
-        });
-        const toDelete = sorted.slice(10);
+
+      // Auto-cleanup: keep only the 10 newest entries when data came from DB.
+      // Use the DB `date` field when available, falling back to DB `createdAt`.
+      if (loadedFromDb && loaded.length > 10) {
+        const getTs = (s: DailySchedule) => {
+          const dateStr = (s.date && typeof s.date === 'string' && s.date.trim() !== '') ? s.date : (s.createdAt ?? '');
+          const ts = Date.parse(dateStr);
+          return isNaN(ts) ? 0 : ts;
+        };
+
+        // Sort ascending (oldest first) so the first N are the ones to remove.
+        const sortedAsc = [...loaded].sort((a, b) => getTs(a) - getTs(b));
+        const extrasCount = Math.max(0, loaded.length - 10);
+        const toDelete = sortedAsc.slice(0, extrasCount);
         const deleteCount = toDelete.length;
         const confirmed = window.confirm(
           `There are ${loaded.length} schedule entries. ${deleteCount} old entr${deleteCount === 1 ? 'y' : 'ies'} will be deleted to keep only the 10 newest.\n\nProceed?`
         );
         if (confirmed) {
-          const keepIds = new Set(sorted.slice(0, 10).map(s => s.id));
-          loaded = loaded.filter(s => keepIds.has(s.id));
+          const deleteIds = new Set(toDelete.map(s => s.id));
+          loaded = loaded.filter(s => !deleteIds.has(s.id));
         }
       }
 
@@ -137,8 +143,10 @@ export default function Home() {
   const updateSchedule = (updated: DailySchedule) => {
     const prevDate = prevDatesRef.current[updated.id];
     const dateChanged = updated.date && updated.date !== prevDate;
+    // Mark as changed so the card becomes sendable again
+    const changed = { ...updated, sentToQB: false };
     prevDatesRef.current[updated.id] = updated.date;
-    setSchedules(prev => prev.map(s => (s.id === updated.id ? updated : s)));
+    setSchedules(prev => prev.map(s => (s.id === updated.id ? changed : s)));
     if (dateChanged) {
       highlightCard(updated.id);
     }
@@ -179,12 +187,10 @@ export default function Home() {
       return;
     }
 
-    // If already sent, confirm before re-sending
+    // Don't allow re-send unless the card has been changed (it's unlocked)
     if (schedule.sentToQB) {
-      const confirmed = window.confirm(
-        `This day (${schedule.dayName || schedule.date || 'undated'}) has already been sent to QuickBooks Time.\n\nDo you want to send it again?`
-      );
-      if (!confirmed) return;
+      alert('This schedule has already been sent and has not changed. Make an edit to send an update.');
+      return;
     }
 
     const result = await sendScheduleToQB(schedule);

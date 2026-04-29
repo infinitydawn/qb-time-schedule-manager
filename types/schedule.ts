@@ -3,6 +3,8 @@ export interface WorkerAssignment {
   workers: string[];
   job: string;
   pmId: string;
+  qbEventId?: string;
+  assignmentHash?: string;
 }
 
 export interface ProjectManager {
@@ -17,6 +19,9 @@ export interface DailySchedule {
   dayName: string;
   projectManagers: ProjectManager[];
   sentToQB?: boolean;
+  qbHash?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Employee {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPool, initDb } from '@/utils/db';
+import crypto from 'crypto';
 import { DailySchedule, ProjectManager, WorkerAssignment } from '@/types/schedule';
 
 let dbReady = false;
@@ -19,7 +20,7 @@ export async function GET() {
     const db = getPool();
 
     const { rows: scheduleRows } = await db.query(
-      `SELECT id, date, day_name, sent_to_qb FROM schedules ORDER BY date`
+      `SELECT id, date, day_name, sent_to_qb, qb_hash, created_at, updated_at FROM schedules ORDER BY date`
     );
 
     const { rows: pmRows } = await db.query(
@@ -27,7 +28,7 @@ export async function GET() {
     );
 
     const { rows: assignRows } = await db.query(
-      `SELECT id, pm_id, schedule_id, workers, job, sort_order FROM assignments ORDER BY sort_order`
+      `SELECT id, pm_id, schedule_id, workers, job, sort_order, qb_event_id, assignment_hash FROM assignments ORDER BY sort_order`
     );
 
     // Build lookup maps
@@ -38,6 +39,8 @@ export async function GET() {
         workers: a.workers || [],
         job: a.job,
         pmId: a.pm_id,
+        qbEventId: a.qb_event_id || undefined,
+        assignmentHash: a.assignment_hash || undefined,
       };
       (assignmentsByPm[a.pm_id] ??= []).push(wa);
     }
@@ -52,11 +55,14 @@ export async function GET() {
       (pmsBySchedule[pm.schedule_id] ??= []).push(p);
     }
 
-    const schedules: DailySchedule[] = scheduleRows.map((s: { id: string; date: string; day_name: string; sent_to_qb: boolean }) => ({
+    const schedules: DailySchedule[] = scheduleRows.map((s: any) => ({
       id: s.id,
       date: s.date,
       dayName: s.day_name,
       sentToQB: s.sent_to_qb || false,
+      qbHash: s.qb_hash || undefined,
+      createdAt: s.created_at ? new Date(s.created_at).toISOString() : undefined,
+      updatedAt: s.updated_at ? new Date(s.updated_at).toISOString() : undefined,
       projectManagers: pmsBySchedule[s.id] || [],
     }));
 
@@ -80,29 +86,53 @@ export async function PUT(req: NextRequest) {
     try {
       await client.query('BEGIN');
 
-      // Wipe existing data (cascading deletes handle children)
-      await client.query('DELETE FROM schedules');
-
+      // Upsert schedules, project managers and assignments so we preserve QB metadata
       for (const s of schedules) {
         await client.query(
-          `INSERT INTO schedules (id, date, day_name, sent_to_qb, updated_at) VALUES ($1, $2, $3, $4, NOW())`,
+          `INSERT INTO schedules (id, date, day_name, sent_to_qb, updated_at) VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (id) DO UPDATE SET date = EXCLUDED.date, day_name = EXCLUDED.day_name, sent_to_qb = EXCLUDED.sent_to_qb, updated_at = NOW()`,
           [s.id, s.date, s.dayName, s.sentToQB || false]
         );
 
+        // Track PM and assignment IDs so we can remove any that are not present in the payload
+        const pmIds: string[] = [];
+        const assignIds: string[] = [];
+
         for (let pi = 0; pi < s.projectManagers.length; pi++) {
           const pm = s.projectManagers[pi];
+          pmIds.push(pm.id);
           await client.query(
-            `INSERT INTO project_managers (id, schedule_id, name, sort_order) VALUES ($1, $2, $3, $4)`,
+            `INSERT INTO project_managers (id, schedule_id, name, sort_order) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, sort_order = EXCLUDED.sort_order`,
             [pm.id, s.id, pm.name, pi]
           );
 
           for (let ai = 0; ai < pm.assignments.length; ai++) {
             const a = pm.assignments[ai];
+            assignIds.push(a.id);
+            // Compute assignment hash server-side for reliable comparisons
+            const workers = Array.isArray(a.workers) ? [...a.workers].sort() : [];
+            const assignmentHash = crypto.createHash('sha256').update(JSON.stringify({ job: a.job || '', workers })).digest('hex');
             await client.query(
-              `INSERT INTO assignments (id, pm_id, schedule_id, workers, job, sort_order) VALUES ($1, $2, $3, $4, $5, $6)`,
-              [a.id, pm.id, s.id, a.workers, a.job, ai]
+              `INSERT INTO assignments (id, pm_id, schedule_id, workers, job, sort_order, assignment_hash) VALUES ($1, $2, $3, $4, $5, $6, $7)
+               ON CONFLICT (id) DO UPDATE SET workers = EXCLUDED.workers, job = EXCLUDED.job, sort_order = EXCLUDED.sort_order, assignment_hash = EXCLUDED.assignment_hash`,
+              [a.id, pm.id, s.id, a.workers, a.job, ai, assignmentHash]
             );
           }
+        }
+
+        // Remove any PMs and assignments that were deleted client-side
+        if (pmIds.length > 0) {
+          await client.query(`DELETE FROM project_managers WHERE schedule_id = $1 AND id != ALL($2::text[])`, [s.id, pmIds]);
+        } else {
+          // no PMs in payload -> remove all PMs for this schedule
+          await client.query(`DELETE FROM project_managers WHERE schedule_id = $1`, [s.id]);
+        }
+
+        if (assignIds.length > 0) {
+          await client.query(`DELETE FROM assignments WHERE schedule_id = $1 AND id != ALL($2::text[])`, [s.id, assignIds]);
+        } else {
+          await client.query(`DELETE FROM assignments WHERE schedule_id = $1`, [s.id]);
         }
       }
 

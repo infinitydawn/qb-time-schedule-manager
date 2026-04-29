@@ -87,4 +87,34 @@ export async function initDb(): Promise<void> {
     EXCEPTION WHEN duplicate_column THEN NULL;
     END $$;
   `);
+
+  // Migration: add qb_hash and qb_sent_at to schedules for tracking external sends
+  await db.query(`
+    DO $$ BEGIN
+      ALTER TABLE schedules ADD COLUMN qb_hash TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL;
+    END $$;
+  `);
+
+  await db.query(`
+    DO $$ BEGIN
+      ALTER TABLE schedules ADD COLUMN qb_sent_at TIMESTAMPTZ;
+    EXCEPTION WHEN duplicate_column THEN NULL;
+    END $$;
+  `);
+
+  // Migration: add qb_event_id to assignments so we can map local assignments to QB event ids
+  await db.query(`
+    DO $$ BEGIN
+      ALTER TABLE assignments ADD COLUMN qb_event_id TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL;
+    END $$;
+  `);
+
+  await db.query(`
+    DO $$ BEGIN
+      ALTER TABLE assignments ADD COLUMN assignment_hash TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL;
+    END $$;
+  `);
 }
