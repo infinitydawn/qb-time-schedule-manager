@@ -97,22 +97,25 @@ const hashAssignment = (
   return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 };
 
-const parseNotes = (notes?: string) => {
-  if (!notes) return { pmName: '', job: '', workers: [] as string[] };
-
-  const match = notes.match(/^(.*?)\s+-\s+(.*?)\s+\((.*?)\)\s*$/);
-  if (!match) return { pmName: '', job: '', workers: [] as string[] };
-
-  return {
-    pmName: match[1].trim(),
-    job: match[2].trim(),
-    workers: match[3].split(',').map(worker => worker.trim()).filter(Boolean),
-  };
-};
-
 const userName = (user?: SupplementalUser) => {
   if (!user) return '';
   return user.display_name || `${user.first_name || ''} ${user.last_name || ''}`.trim();
+};
+
+const mergeUniqueWorkers = (current: string[], incoming: string[]) => {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+
+  for (const name of [...current, ...incoming]) {
+    const clean = name.trim();
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(clean);
+  }
+
+  return merged;
 };
 
 const normalizeAssignedUserIds = (value: unknown): Array<string | number> => {
@@ -217,18 +220,20 @@ function eventsToSchedules(
   jobcodesById: Record<string, SupplementalJobcode>
 ) {
   const schedulesByDate = new Map<string, DailySchedule>();
+  const assignmentByPmAndSlot = new Map<string, Map<string, WorkerAssignment>>();
 
   for (const event of events) {
     if (!event.id || !event.start) continue;
 
     const date = event.start.slice(0, 10);
-    const parsed = parseNotes(event.notes);
     const jobcodeName = event.jobcode_id ? jobcodesById[String(event.jobcode_id)]?.name : '';
-    const job = parsed.job || event.location || jobcodeName || event.title || '';
-    const workers = parsed.workers.length > 0
-      ? parsed.workers
-      : normalizeAssignedUserIds(event.assigned_user_ids).map(id => userName(usersById[String(id)])).filter(Boolean);
-    const pmName = parsed.pmName || 'Imported from QB';
+    const title = (event.title || '').trim();
+    const titlePm = title.split(' - ')[0]?.trim() || '';
+    const job = (event.location || '').trim() || (jobcodeName || '').trim() || title || '';
+    const workers = normalizeAssignedUserIds(event.assigned_user_ids)
+      .map(id => userName(usersById[String(id)]))
+      .filter(Boolean);
+    const pmName = titlePm || 'Imported from QB';
 
     let schedule = schedulesByDate.get(date);
     if (!schedule) {
@@ -261,8 +266,28 @@ function eventsToSchedules(
       endTime: normalizeTime(event.end, DEFAULT_END_TIME),
       qbEventId: String(event.id),
     };
+
+    // QB can return repeated rows for the same logical team event with slight
+    // worker-list differences. Collapse by PM + date + time + job and union workers.
+    const dedupeScopeKey = `${date}::${pm.id}`;
+    const assignmentKey = [
+      assignment.startTime || DEFAULT_START_TIME,
+      assignment.endTime || DEFAULT_END_TIME,
+      (assignment.job || '').trim().toLowerCase(),
+    ].join('::');
+
+    const scopeMap = assignmentByPmAndSlot.get(dedupeScopeKey) || new Map<string, WorkerAssignment>();
+    const existing = scopeMap.get(assignmentKey);
+    if (existing) {
+      existing.workers = mergeUniqueWorkers(existing.workers, assignment.workers);
+      existing.assignmentHash = hashAssignment(date, pm.name, existing);
+      continue;
+    }
+
     assignment.assignmentHash = hashAssignment(date, pm.name, assignment);
     pm.assignments.push(assignment);
+    scopeMap.set(assignmentKey, assignment);
+    assignmentByPmAndSlot.set(dedupeScopeKey, scopeMap);
   }
 
   return [...schedulesByDate.values()].sort((a, b) => a.date.localeCompare(b.date));
