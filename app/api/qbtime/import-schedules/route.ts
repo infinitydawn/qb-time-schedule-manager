@@ -115,6 +115,40 @@ const userName = (user?: SupplementalUser) => {
   return user.display_name || `${user.first_name || ''} ${user.last_name || ''}`.trim();
 };
 
+const normalizeAssignedUserIds = (value: unknown): Array<string | number> => {
+  if (value === null || value === undefined) return [];
+
+  if (Array.isArray(value)) {
+    return value.filter(id => typeof id === 'string' || typeof id === 'number');
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map(part => part.trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === 'number') {
+    return [value];
+  }
+
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const entries = Object.entries(obj);
+    if (entries.length === 0) return [];
+
+    // Some QB payloads return an object keyed by user id with boolean flags.
+    if (entries.every(([, v]) => typeof v === 'boolean')) {
+      return entries.filter(([, v]) => v === true).map(([k]) => k);
+    }
+
+    return entries.flatMap(([, v]) => normalizeAssignedUserIds(v));
+  }
+
+  return [];
+};
+
 async function fetchScheduleEvents(startDate: string, endDate: string) {
   const headers = getQBHeaders();
 
@@ -193,7 +227,7 @@ function eventsToSchedules(
     const job = parsed.job || event.location || jobcodeName || event.title || '';
     const workers = parsed.workers.length > 0
       ? parsed.workers
-      : (event.assigned_user_ids || []).map(id => userName(usersById[String(id)])).filter(Boolean);
+      : normalizeAssignedUserIds(event.assigned_user_ids).map(id => userName(usersById[String(id)])).filter(Boolean);
     const pmName = parsed.pmName || 'Imported from QB';
 
     let schedule = schedulesByDate.get(date);
