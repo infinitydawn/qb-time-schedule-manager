@@ -19,6 +19,35 @@ const shortJob = (job: string) => {
   return `${m[1]} ${streetName}`;
 };
 
+const DEFAULT_START_TIME = '08:00';
+const DEFAULT_END_TIME = '16:00';
+
+const formatTime = (time?: string) => {
+  if (!time) return '';
+  const [hourStr, minute = '00'] = time.split(':');
+  const hour = Number(hourStr);
+  if (Number.isNaN(hour)) return time;
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${minute} ${period}`;
+};
+
+const timeSummary = (assignment: WorkerAssignment) =>
+  `${formatTime(assignment.startTime || DEFAULT_START_TIME)}-${formatTime(assignment.endTime || DEFAULT_END_TIME)}`;
+
+const timeToMinutes = (time?: string) => {
+  const [hours = '0', minutes = '0'] = (time || '').split(':');
+  return Number(hours) * 60 + Number(minutes);
+};
+
+const assignmentsOverlap = (a: WorkerAssignment, b: WorkerAssignment) => {
+  const aStart = timeToMinutes(a.startTime || DEFAULT_START_TIME);
+  const aEnd = timeToMinutes(a.endTime || DEFAULT_END_TIME);
+  const bStart = timeToMinutes(b.startTime || DEFAULT_START_TIME);
+  const bEnd = timeToMinutes(b.endTime || DEFAULT_END_TIME);
+  return aStart < bEnd && bStart < aEnd;
+};
+
 interface JobRow {
   id: string;
   workers: string[];
@@ -33,6 +62,7 @@ interface PMBlock {
 
 interface DayCardProps {
   schedule: DailySchedule;
+  isSending?: boolean;
   onChange: (schedule: DailySchedule) => void;
   onDelete: () => void;
   onCopy: () => void;
@@ -42,7 +72,7 @@ interface DayCardProps {
   jobList?: string[];
 }
 
-const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy, onSendToQB, pmList, techList, jobList }) => {
+const DayCard: React.FC<DayCardProps> = ({ schedule, isSending = false, onChange, onDelete, onCopy, onSendToQB, pmList, techList, jobList }) => {
   const availablePMs = pmList ?? [];
   const availableEmployees = techList ?? [];
   const availableJobs = jobList ?? [];
@@ -98,7 +128,9 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
       id: `job-${Date.now()}`,
       workers: [],
       job: '',
-      pmId
+      pmId,
+      startTime: DEFAULT_START_TIME,
+      endTime: DEFAULT_END_TIME
     };
     onChange({
       ...schedule,
@@ -111,7 +143,7 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
   };
 
   // Update a job row
-  const updateJobRow = (pmId: string, jobId: string, field: 'workers' | 'job', value: string[] | string) => {
+  const updateJobRow = (pmId: string, jobId: string, field: 'workers' | 'job' | 'startTime' | 'endTime', value: string[] | string) => {
     onChange({
       ...schedule,
       projectManagers: schedule.projectManagers.map(pm =>
@@ -148,11 +180,14 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
     }
 
     // Adding — check if already assigned elsewhere in the same day
+    const targetAssignment = schedule.projectManagers
+      .flatMap(pm => pm.assignments)
+      .find(a => a.id === jobId);
     const conflictingJobs: string[] = [];
     schedule.projectManagers.forEach(pm =>
       pm.assignments.forEach(a => {
-        if (a.id !== jobId && a.workers.includes(worker)) {
-          conflictingJobs.push(a.job || '(no job)');
+        if (targetAssignment && a.id !== jobId && a.workers.includes(worker) && assignmentsOverlap(targetAssignment, a)) {
+          conflictingJobs.push(`${timeSummary(a)} ${a.job || '(no job)'}`);
         }
       })
     );
@@ -172,7 +207,7 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
   );
 
   return (
-    <div className={`bg-white border rounded-lg shadow-sm ${
+    <div className={`relative bg-white border rounded-lg shadow-sm ${
       schedule.sentToQB ? 'border-green-400 ring-1 ring-green-200' : 'border-gray-300'
     }`}>
       {/* Card header — always visible */}
@@ -180,7 +215,7 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
         className={`flex flex-col sm:flex-row sm:items-center sm:justify-between px-3 sm:px-5 py-2 sm:py-3 border-b cursor-pointer select-none gap-2 ${
           schedule.sentToQB ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'
         }`}
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={() => { if (!isSending) setCollapsed(!collapsed); }}
       >
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <span className="text-gray-500 text-xs sm:text-sm">{collapsed ? '▶' : '▼'}</span>
@@ -203,24 +238,26 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
         <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
           <button
             onClick={onSendToQB}
-            disabled={!!schedule.sentToQB}
+            disabled={!!schedule.sentToQB || isSending}
             className={`px-2 sm:px-3 py-1 text-xs rounded ${
-              schedule.sentToQB
+              (schedule.sentToQB || isSending)
                 ? 'bg-green-700 text-white opacity-60 cursor-not-allowed'
                 : 'bg-green-500 text-white hover:bg-green-600'
             }`}
           >
-            {schedule.sentToQB ? '✓ Sent' : 'Send to QB'}
+            {isSending ? 'Sending...' : (schedule.sentToQB ? '✓ Sent' : 'Send to QB')}
           </button>
           <button
             onClick={onCopy}
-            className="px-2 sm:px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
+            disabled={isSending}
+            className={`px-2 sm:px-3 py-1 text-xs rounded ${isSending ? 'bg-blue-400 text-white opacity-60 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600'}`}
           >
             Copy
           </button>
           <button
             onClick={onDelete}
-            className="px-2 sm:px-3 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600"
+            disabled={isSending}
+            className={`px-2 sm:px-3 py-1 text-xs rounded ${isSending ? 'bg-red-400 text-white opacity-60 cursor-not-allowed' : 'bg-red-500 text-white hover:bg-red-600'}`}
           >
             Delete
           </button>
@@ -236,7 +273,7 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
             if (pm.name) lines.push(pm.name);
             pm.assignments.forEach(a => {
               const workers = a.workers.length > 0 ? a.workers.map(firstName).join(', ') : '(no workers)';
-              const job = shortJob(a.job);
+              const job = `${timeSummary(a)}  ${shortJob(a.job)}`;
               lines.push(`  ${workers} – ${job}`);
             });
             return lines.join('\n');
@@ -253,6 +290,7 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
             <input
               type="date"
               value={schedule.date}
+              disabled={isSending}
               onChange={e => updateDate(e.target.value)}
               className={`px-2 sm:px-3 py-1 sm:py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400 ${dateBlink ? 'animate-date-blink' : ''}`}
             />
@@ -269,6 +307,7 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
               availablePMs={availablePMs}
               availableEmployees={availableEmployees}
               availableJobs={availableJobs}
+              disabled={isSending}
               onUpdateName={(name) => updatePMName(pm.id, name)}
               onRemove={() => removePM(pm.id)}
               onAddJob={() => addJobRow(pm.id)}
@@ -277,6 +316,7 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
                 if (a) toggleWorker(pm.id, jobId, a.workers, worker);
               }}
               onChangeJob={(jobId, job) => updateJobRow(pm.id, jobId, 'job', job)}
+              onChangeTime={(jobId, field, time) => updateJobRow(pm.id, jobId, field, time)}
               onRemoveJob={(jobId) => removeJobRow(pm.id, jobId)}
             />
           ))}
@@ -284,12 +324,14 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
           {/* Add PM button */}
           <button
             onClick={addPM}
+            disabled={isSending}
             className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
           >
             + add PM
           </button>
         </div>
       )}
+      {isSending && <div className="absolute inset-0 bg-white/45 cursor-wait rounded-lg" />}
     </div>
   );
 };
@@ -298,6 +340,7 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, onChange, onDelete, onCopy,
 
 interface PMBlockProps {
   pm: ProjectManager;
+  disabled?: boolean;
   availablePMs: string[];
   availableEmployees: string[];
   availableJobs: string[];
@@ -306,12 +349,13 @@ interface PMBlockProps {
   onAddJob: () => void;
   onToggleWorker: (jobId: string, worker: string) => void;
   onChangeJob: (jobId: string, job: string) => void;
+  onChangeTime: (jobId: string, field: 'startTime' | 'endTime', time: string) => void;
   onRemoveJob: (jobId: string) => void;
 }
 
 const PMBlock: React.FC<PMBlockProps> = ({
-  pm, availablePMs, availableEmployees, availableJobs,
-  onUpdateName, onRemove, onAddJob, onToggleWorker, onChangeJob, onRemoveJob
+  pm, disabled = false, availablePMs, availableEmployees, availableJobs,
+  onUpdateName, onRemove, onAddJob, onToggleWorker, onChangeJob, onChangeTime, onRemoveJob
 }) => {
   const [collapsed, setCollapsed] = useState(false);
   const workerCount = pm.assignments.reduce((t, a) => t + a.workers.length, 0);
@@ -321,13 +365,14 @@ const PMBlock: React.FC<PMBlockProps> = ({
       {/* PM header */}
       <div
         className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 bg-indigo-50 px-3 sm:px-4 py-2 border-b border-indigo-200 cursor-pointer select-none"
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={() => { if (!disabled) setCollapsed(!collapsed); }}
       >
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <span className="text-gray-500 text-xs">{collapsed ? '▶' : '▼'}</span>
           <div onClick={e => e.stopPropagation()}>
             <select
               value={pm.name}
+              disabled={disabled}
               onChange={e => onUpdateName(e.target.value)}
               className="px-2 py-1 text-sm font-bold border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 max-w-[160px] sm:max-w-none"
             >
@@ -342,6 +387,7 @@ const PMBlock: React.FC<PMBlockProps> = ({
           </span>
         </div>
         <button
+          disabled={disabled}
           onClick={e => { e.stopPropagation(); onRemove(); }}
           className="sm:ml-auto text-red-400 hover:text-red-600 text-xs sm:text-sm self-end sm:self-auto"
         >
@@ -354,7 +400,7 @@ const PMBlock: React.FC<PMBlockProps> = ({
         <div className="px-4 py-2 bg-gray-50 text-xs text-gray-600 font-mono whitespace-pre-line">
           {pm.assignments.map(a => {
             const workers = a.workers.length > 0 ? a.workers.map(firstName).join(', ') : '(no workers)';
-            const job = shortJob(a.job);
+            const job = `${timeSummary(a)}  ${shortJob(a.job)}`;
             return `${workers} – ${job}`;
           }).join('\n')}
         </div>
@@ -367,16 +413,19 @@ const PMBlock: React.FC<PMBlockProps> = ({
             <JobRowEditor
               key={assignment.id}
               assignment={assignment}
+              disabled={disabled}
               availableEmployees={availableEmployees}
               availableJobs={availableJobs}
               onToggleWorker={(worker) => onToggleWorker(assignment.id, worker)}
               onChangeJob={(job) => onChangeJob(assignment.id, job)}
+              onChangeTime={(field, time) => onChangeTime(assignment.id, field, time)}
               onRemove={() => onRemoveJob(assignment.id)}
             />
           ))}
 
           <button
             onClick={onAddJob}
+            disabled={disabled}
             className="text-xs text-blue-600 hover:text-blue-800 font-medium"
           >
             + add another job
@@ -391,23 +440,28 @@ const PMBlock: React.FC<PMBlockProps> = ({
 
 interface JobRowEditorProps {
   assignment: WorkerAssignment;
+  disabled?: boolean;
   availableEmployees: string[];
   availableJobs: string[];
   onToggleWorker: (worker: string) => void;
   onChangeJob: (job: string) => void;
+  onChangeTime: (field: 'startTime' | 'endTime', time: string) => void;
   onRemove: () => void;
 }
 
 const JobRowEditor: React.FC<JobRowEditorProps> = ({
   assignment,
+  disabled = false,
   availableEmployees,
   availableJobs,
   onToggleWorker,
   onChangeJob,
+  onChangeTime,
   onRemove
 }) => {
   const [showEmployees, setShowEmployees] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [showTime, setShowTime] = useState(Boolean(assignment.startTime || assignment.endTime));
   const [jobSearch, setJobSearch] = useState('');
   const [techSearch, setTechSearch] = useState('');
   const [showJobDropdown, setShowJobDropdown] = useState(false);
@@ -432,18 +486,20 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
     .filter(emp => emp.toLowerCase().includes(techSearch.toLowerCase()))
     .sort((a, b) => a.localeCompare(b));
 
-  const summaryText = `${assignment.workers.length > 0 ? assignment.workers.map(firstName).join(', ') : '(no workers)'} – ${shortJob(assignment.job)}`;
+  const summaryText = `${assignment.workers.length > 0 ? assignment.workers.map(firstName).join(', ') : '(no workers)'} - ${shortJob(assignment.job)}`;
+  const timedSummaryText = `${timeSummary(assignment)}  ${summaryText}`;
 
   return (
     <div className="border border-gray-200 rounded bg-gray-50">
       {/* Job row header — always visible, clickable to collapse */}
       <div
         className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none"
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={() => { if (!disabled) setCollapsed(!collapsed); }}
       >
         <span className="text-gray-400 text-xs">{collapsed ? '▶' : '▼'}</span>
-        <span className="flex-1 text-sm text-gray-700 truncate">{summaryText}</span>
+        <span className="flex-1 text-sm text-gray-700 truncate">{timedSummaryText}</span>
         <button
+          disabled={disabled}
           onClick={e => { e.stopPropagation(); onRemove(); }}
           className="text-red-400 hover:text-red-600 text-lg leading-none"
         >
@@ -457,6 +513,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
             {/* Employee selector toggle */}
             <button
+              disabled={disabled}
               onClick={() => { setShowEmployees(!showEmployees); setTechSearch(''); }}
               className="flex-1 text-left px-3 py-1.5 text-sm border border-gray-300 rounded bg-white min-h-[32px]"
             >
@@ -473,6 +530,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
             <div ref={jobRef} className="relative">
               <button
                 type="button"
+                disabled={disabled}
                 onClick={() => { setShowJobDropdown(!showJobDropdown); setJobSearch(''); }}
                 className="w-full sm:w-auto px-2 py-1.5 text-sm border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 sm:min-w-[180px] text-left truncate"
               >
@@ -484,6 +542,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
                   <input
                     type="text"
                     autoFocus
+                    disabled={disabled}
                     value={jobSearch}
                     onChange={e => setJobSearch(e.target.value)}
                     placeholder="Search jobs..."
@@ -493,6 +552,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
                     {assignment.job && (
                       <button
                         type="button"
+                        disabled={disabled}
                         onClick={() => { onChangeJob(''); setShowJobDropdown(false); }}
                         className="w-full text-left px-3 py-1.5 text-sm text-gray-400 hover:bg-gray-100"
                       >
@@ -504,6 +564,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
                         <button
                           type="button"
                           key={job}
+                          disabled={disabled}
                           onClick={() => { onChangeJob(job); setShowJobDropdown(false); setJobSearch(''); }}
                           className={`w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 ${
                             assignment.job === job ? 'bg-blue-100 font-semibold' : ''
@@ -522,11 +583,45 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
           </div>
 
           {/* Employee checkboxes — shown when toggled */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => setShowTime(!showTime)}
+              className="self-start px-2 py-1 text-xs border border-blue-200 text-blue-700 bg-blue-50 rounded hover:bg-blue-100"
+            >
+              {showTime ? 'Hide time' : 'Set time'}
+            </button>
+            <span className="text-xs text-gray-500">{timeSummary(assignment)}</span>
+          </div>
+
+          {showTime && (
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <label className="font-medium text-gray-600">Start</label>
+              <input
+                type="time"
+                value={assignment.startTime || DEFAULT_START_TIME}
+                disabled={disabled}
+                onChange={e => onChangeTime('startTime', e.target.value)}
+                className="px-2 py-1 border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+              />
+              <label className="font-medium text-gray-600">End</label>
+              <input
+                type="time"
+                value={assignment.endTime || DEFAULT_END_TIME}
+                disabled={disabled}
+                onChange={e => onChangeTime('endTime', e.target.value)}
+                className="px-2 py-1 border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+              />
+            </div>
+          )}
+
           {showEmployees && (
             <div className="border border-gray-300 rounded bg-white">
               <input
                 type="text"
                 autoFocus
+                disabled={disabled}
                 value={techSearch}
                 onChange={e => setTechSearch(e.target.value)}
                 placeholder="Search techs..."
@@ -540,6 +635,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
                         <input
                           type="checkbox"
                           checked={assignment.workers.includes(emp)}
+                          disabled={disabled}
                           onChange={() => onToggleWorker(emp)}
                           className="h-3 w-3"
                         />

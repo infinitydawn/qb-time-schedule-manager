@@ -71,6 +71,8 @@ export async function initDb(): Promise<void> {
       schedule_id TEXT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
       workers     TEXT[] NOT NULL DEFAULT '{}',
       job         TEXT NOT NULL DEFAULT '',
+      start_time  TEXT,
+      end_time    TEXT,
       sort_order  INT NOT NULL DEFAULT 0
     );
   `);
@@ -114,6 +116,20 @@ export async function initDb(): Promise<void> {
   await db.query(`
     DO $$ BEGIN
       ALTER TABLE assignments ADD COLUMN assignment_hash TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL;
+    END $$;
+  `);
+
+  await db.query(`
+    DO $$ BEGIN
+      ALTER TABLE assignments ADD COLUMN start_time TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL;
+    END $$;
+  `);
+
+  await db.query(`
+    DO $$ BEGIN
+      ALTER TABLE assignments ADD COLUMN end_time TEXT;
     EXCEPTION WHEN duplicate_column THEN NULL;
     END $$;
   `);

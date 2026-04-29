@@ -3,6 +3,19 @@
 import { useState, useCallback, useEffect } from 'react';
 import { DailySchedule } from '@/types/schedule';
 
+const DEFAULT_START_TIME = '08:00';
+const DEFAULT_END_TIME = '16:00';
+
+const normalizeTime = (time: string | undefined, fallback: string) => {
+  if (!time || !/^\d{2}:\d{2}$/.test(time)) return fallback;
+  return time;
+};
+
+const timeToMinutes = (time: string) => {
+  const [hours, minutes] = time.split(':').map(Number);
+  return hours * 60 + minutes;
+};
+
 export interface QBTimePM {
   id: string;
   name: string;
@@ -32,6 +45,17 @@ export interface QBCustomField {
   items: { id: string; name: string; active: boolean }[];
 }
 
+interface SendScheduleResult {
+  success: boolean;
+  created: number;
+  updated?: number;
+  skipped?: number;
+  failed: number;
+  errors?: any[];
+  unchanged?: boolean;
+  message?: string;
+}
+
 interface UseQBTimeReturn {
   loading: boolean;
   error: string | null;
@@ -43,7 +67,7 @@ interface UseQBTimeReturn {
   fetchProjectManagers: () => Promise<void>;
   fetchTechnicians: () => Promise<void>;
   fetchJobs: () => Promise<void>;
-  sendScheduleToQB: (schedule: DailySchedule) => Promise<{ success: boolean; created: number; failed: number; errors?: any[] }>;
+  sendScheduleToQB: (schedule: DailySchedule) => Promise<SendScheduleResult>;
   disconnect: () => void;
 }
 
@@ -232,7 +256,7 @@ export const useQBTime = (): UseQBTimeReturn => {
 
   const sendScheduleToQB = useCallback(async (
     schedule: DailySchedule
-  ): Promise<{ success: boolean; created: number; failed: number; errors?: any[] }> => {
+  ): Promise<SendScheduleResult> => {
     if (!isConnected) {
       setError('Not connected to QuickBooks Time');
       return { success: false, created: 0, failed: 0 };
@@ -313,7 +337,7 @@ export const useQBTime = (): UseQBTimeReturn => {
           const techNamesList = assignment.workers.join(', ');
           const notes = `${pm.name} - ${assignment.job} (${techNamesList})`;
 
-          // Build start/end for the schedule date (8am - 4pm Eastern)
+          // Build start/end for the schedule date. Defaults remain 8am - 4pm Eastern.
           // Determine EST vs EDT: EDT is Mar second Sun – Nov first Sun
           const [yr, mo, da] = schedule.date.split('-').map(Number);
           const dateObj = new Date(yr, mo - 1, da);
@@ -333,11 +357,25 @@ export const useQBTime = (): UseQBTimeReturn => {
             if (da < firstSun) isEDT = true;
           }
           const offset = isEDT ? '-04:00' : '-05:00';
-          const startISO = `${schedule.date}T08:00:00${offset}`;
-          const endISO = `${schedule.date}T16:00:00${offset}`;
+          const startTime = normalizeTime(assignment.startTime, DEFAULT_START_TIME);
+          const endTime = normalizeTime(assignment.endTime, DEFAULT_END_TIME);
+          if (timeToMinutes(endTime) <= timeToMinutes(startTime)) {
+            setError(`End time must be after start time for "${assignment.job}"`);
+            setLoading(false);
+            return { success: false, created: 0, failed: 0 };
+          }
+          const startISO = `${schedule.date}T${startTime}:00${offset}`;
+          const endISO = `${schedule.date}T${endTime}:00${offset}`;
 
           // Compute a stable hash for this assignment (job + workers) to help server detect changes
-          const assignmentPayload = { job: assignment.job || '', workers: [...assignment.workers].sort() };
+          const assignmentPayload = {
+            date: schedule.date,
+            projectManager: pm.name || '',
+            job: assignment.job || '',
+            workers: [...assignment.workers].sort(),
+            startTime,
+            endTime,
+          };
           let assignmentHash = '';
           try {
             const enc = new TextEncoder();
@@ -401,10 +439,25 @@ export const useQBTime = (): UseQBTimeReturn => {
 
       if (data.failed > 0) {
         setError(`${data.created} created, ${data.failed} failed`);
-        return { success: data.created > 0, created: data.created, failed: data.failed, errors: data.errors };
+        return {
+          success: data.created > 0 || data.updated > 0,
+          created: data.created || 0,
+          updated: data.updated || 0,
+          skipped: data.skipped || 0,
+          failed: data.failed,
+          errors: data.errors,
+        };
       }
 
-      return { success: true, created: data.created, failed: 0 };
+      return {
+        success: true,
+        created: data.created || 0,
+        updated: data.updated || 0,
+        skipped: data.skipped || 0,
+        failed: 0,
+        unchanged: !!data.unchanged,
+        message: data.message,
+      };
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send schedule');
       setLoading(false);

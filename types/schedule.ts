@@ -3,6 +3,8 @@ export interface WorkerAssignment {
   workers: string[];
   job: string;
   pmId: string;
+  startTime?: string;
+  endTime?: string;
   qbEventId?: string;
   assignmentHash?: string;
 }

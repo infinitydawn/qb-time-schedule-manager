@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPool, initDb } from '@/utils/db';
-import crypto from 'crypto';
 import { DailySchedule, ProjectManager, WorkerAssignment } from '@/types/schedule';
 
 let dbReady = false;
@@ -28,7 +27,7 @@ export async function GET() {
     );
 
     const { rows: assignRows } = await db.query(
-      `SELECT id, pm_id, schedule_id, workers, job, sort_order, qb_event_id, assignment_hash FROM assignments ORDER BY sort_order`
+      `SELECT id, pm_id, schedule_id, workers, job, start_time, end_time, sort_order, qb_event_id, assignment_hash FROM assignments ORDER BY sort_order`
     );
 
     // Build lookup maps
@@ -39,6 +38,8 @@ export async function GET() {
         workers: a.workers || [],
         job: a.job,
         pmId: a.pm_id,
+        startTime: a.start_time || undefined,
+        endTime: a.end_time || undefined,
         qbEventId: a.qb_event_id || undefined,
         assignmentHash: a.assignment_hash || undefined,
       };
@@ -110,13 +111,12 @@ export async function PUT(req: NextRequest) {
           for (let ai = 0; ai < pm.assignments.length; ai++) {
             const a = pm.assignments[ai];
             assignIds.push(a.id);
-            // Compute assignment hash server-side for reliable comparisons
-            const workers = Array.isArray(a.workers) ? [...a.workers].sort() : [];
-            const assignmentHash = crypto.createHash('sha256').update(JSON.stringify({ job: a.job || '', workers })).digest('hex');
+            const startTime = a.startTime || '08:00';
+            const endTime = a.endTime || '16:00';
             await client.query(
-              `INSERT INTO assignments (id, pm_id, schedule_id, workers, job, sort_order, assignment_hash) VALUES ($1, $2, $3, $4, $5, $6, $7)
-               ON CONFLICT (id) DO UPDATE SET workers = EXCLUDED.workers, job = EXCLUDED.job, sort_order = EXCLUDED.sort_order, assignment_hash = EXCLUDED.assignment_hash`,
-              [a.id, pm.id, s.id, a.workers, a.job, ai, assignmentHash]
+              `INSERT INTO assignments (id, pm_id, schedule_id, workers, job, start_time, end_time, sort_order, assignment_hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+               ON CONFLICT (id) DO UPDATE SET workers = EXCLUDED.workers, job = EXCLUDED.job, start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time, sort_order = EXCLUDED.sort_order`,
+              [a.id, pm.id, s.id, a.workers, a.job, startTime, endTime, ai, a.assignmentHash || null]
             );
           }
         }
@@ -134,6 +134,13 @@ export async function PUT(req: NextRequest) {
         } else {
           await client.query(`DELETE FROM assignments WHERE schedule_id = $1`, [s.id]);
         }
+      }
+
+      const scheduleIds = schedules.map(s => s.id);
+      if (scheduleIds.length > 0) {
+        await client.query(`DELETE FROM schedules WHERE id != ALL($1::text[])`, [scheduleIds]);
+      } else {
+        await client.query(`DELETE FROM schedules`);
       }
 
       await client.query('COMMIT');

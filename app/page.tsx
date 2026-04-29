@@ -6,11 +6,72 @@ import QBTimeManager from '@/components/QBTimeManager';
 import { useQBTime } from '@/hooks/useQBTime';
 import { useScheduleStorage } from '@/utils/storage';
 import { DailySchedule } from '@/types/schedule';
+import { getScheduleFingerprintInput, schedulesHaveSameQBContent } from '@/utils/scheduleFingerprint';
+
+const cloneWithUniqueIds = (schedule: DailySchedule, suffix: string): DailySchedule => ({
+  ...schedule,
+  projectManagers: schedule.projectManagers.map(pm => ({
+    ...pm,
+    id: `${pm.id}-${suffix}`,
+    assignments: pm.assignments.map(assignment => ({
+      ...assignment,
+      id: `${assignment.id}-${suffix}`,
+      pmId: `${pm.id}-${suffix}`,
+    })),
+  })),
+});
+
+const mergeDuplicateDateSchedules = (base: DailySchedule, duplicate: DailySchedule): DailySchedule => {
+  if (getScheduleFingerprintInput(base) === getScheduleFingerprintInput(duplicate)) {
+    return {
+      ...base,
+      sentToQB: base.sentToQB || duplicate.sentToQB,
+      qbHash: base.qbHash || duplicate.qbHash,
+    };
+  }
+
+  const duplicateWithUniqueIds = cloneWithUniqueIds(duplicate, `merged-${duplicate.id}`);
+
+  return {
+    ...base,
+    sentToQB: false,
+    qbHash: undefined,
+    projectManagers: [
+      ...base.projectManagers,
+      ...duplicateWithUniqueIds.projectManagers,
+    ],
+  };
+};
+
+const dedupeSchedulesByDate = (items: DailySchedule[]) => {
+  const deduped: DailySchedule[] = [];
+  const indexesByDate = new Map<string, number>();
+
+  for (const schedule of items) {
+    if (!schedule.date) {
+      deduped.push(schedule);
+      continue;
+    }
+
+    const existingIndex = indexesByDate.get(schedule.date);
+    if (existingIndex === undefined) {
+      indexesByDate.set(schedule.date, deduped.length);
+      deduped.push(schedule);
+      continue;
+    }
+
+    deduped[existingIndex] = mergeDuplicateDateSchedules(deduped[existingIndex], schedule);
+  }
+
+  return deduped;
+};
 
 export default function Home() {
   const [schedules, setSchedules] = useState<DailySchedule[]>([]);
+  const [sendingScheduleIds, setSendingScheduleIds] = useState<Record<string, boolean>>({});
   const [showQBManager, setShowQBManager] = useState(false);
   const [dbStatus, setDbStatus] = useState<'loading' | 'ok' | 'error'>('loading');
+  const [importingFromQB, setImportingFromQB] = useState(false);
 
   // Default filter: last 7 days through next 7 days
   const today = new Date();
@@ -21,6 +82,8 @@ export default function Home() {
   const toISO = (d: Date) => d.toISOString().split('T')[0];
   const [filterFrom, setFilterFrom] = useState(toISO(sevenDaysAgo));
   const [filterTo, setFilterTo] = useState(toISO(sevenDaysAhead));
+  const [qbImportFrom, setQbImportFrom] = useState(toISO(sevenDaysAgo));
+  const [qbImportTo, setQbImportTo] = useState(toISO(sevenDaysAhead));
 
   const { isConnected, sendScheduleToQB, projectManagers, technicians, jobs } = useQBTime();
 
@@ -76,6 +139,7 @@ export default function Home() {
         }
       }
 
+      loaded = dedupeSchedulesByDate(loaded);
       setSchedules(loaded);
       // Seed prevDatesRef so existing cards don't trigger highlight on first render
       const dateMap: Record<string, string> = {};
@@ -141,12 +205,36 @@ export default function Home() {
 
   // Update a day card in place
   const updateSchedule = (updated: DailySchedule) => {
-    const prevDate = prevDatesRef.current[updated.id];
-    const dateChanged = updated.date && updated.date !== prevDate;
-    // Mark as changed so the card becomes sendable again
-    const changed = { ...updated, sentToQB: false };
-    prevDatesRef.current[updated.id] = updated.date;
-    setSchedules(prev => prev.map(s => (s.id === updated.id ? changed : s)));
+    let dateChanged = false;
+    let rejectedDuplicateDate = false;
+
+    setSchedules(prev => {
+      const current = prev.find(s => s.id === updated.id);
+      const oldDate = current?.date || prevDatesRef.current[updated.id] || '';
+      const duplicateDateSchedule = updated.date
+        ? prev.find(s => s.id !== updated.id && s.date === updated.date)
+        : undefined;
+
+      if (duplicateDateSchedule && updated.date !== oldDate) {
+        rejectedDuplicateDate = true;
+        return prev;
+      }
+
+      dateChanged = !!updated.date && updated.date !== oldDate;
+      prevDatesRef.current[updated.id] = updated.date;
+
+      const changed = current && schedulesHaveSameQBContent(current, updated)
+        ? { ...updated, sentToQB: current.sentToQB, qbHash: current.qbHash }
+        : { ...updated, sentToQB: false, qbHash: undefined };
+
+      return prev.map(s => (s.id === updated.id ? changed : s));
+    });
+
+    if (rejectedDuplicateDate) {
+      alert('That date already exists. Edit the existing day instead of creating a duplicate.');
+      return;
+    }
+
     if (dateChanged) {
       highlightCard(updated.id);
     }
@@ -167,6 +255,8 @@ export default function Home() {
         assignments: pm.assignments.map(a => ({
           ...a,
           id: `job-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          qbEventId: undefined,
+          assignmentHash: undefined,
         })),
       })),
     };
@@ -179,8 +269,61 @@ export default function Home() {
     setSchedules(prev => prev.filter(s => s.id !== id));
   };
 
+  const importFromQB = async () => {
+    if (!isConnected) {
+      alert('Please connect to QuickBooks Time first');
+      setShowQBManager(true);
+      return;
+    }
+
+    if (!qbImportFrom || !qbImportTo) {
+      alert('Enter both a start date and an end date.');
+      return;
+    }
+
+    if (qbImportFrom > qbImportTo) {
+      alert('Start date must be before or equal to end date.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Import QuickBooks schedules from ${qbImportFrom} through ${qbImportTo}?\n\nThis will replace all existing days in the app.`
+    );
+    if (!confirmed) return;
+
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setImportingFromQB(true);
+    try {
+      const res = await fetch('/api/qbtime/import-schedules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startDate: qbImportFrom, endDate: qbImportTo }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.error || 'Failed to import from QuickBooks.');
+        return;
+      }
+
+      const imported = dedupeSchedulesByDate(data.schedules || []);
+      const dateMap: Record<string, string> = {};
+      imported.forEach(schedule => { dateMap[schedule.id] = schedule.date; });
+      prevDatesRef.current = dateMap;
+      setSchedules(imported);
+      setDbStatus('ok');
+      alert(`Imported ${data.importedEvents || 0} QuickBooks schedule event(s).`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to import from QuickBooks.');
+    } finally {
+      setImportingFromQB(false);
+    }
+  };
+
   // Send to QB
   const handleSendToQB = async (schedule: DailySchedule) => {
+    if (sendingScheduleIds[schedule.id]) return;
+
     if (!isConnected) {
       alert('Please connect to QuickBooks Time first');
       setShowQBManager(true);
@@ -193,16 +336,29 @@ export default function Home() {
       return;
     }
 
-    const result = await sendScheduleToQB(schedule);
-    if (result.success && result.failed === 0) {
-      // Mark as sent
-      setSchedules(prev => prev.map(s => s.id === schedule.id ? { ...s, sentToQB: true } : s));
-      alert(`✓ ${result.created} schedule event(s) created for ${schedule.dayName || 'this day'}!`);
-    } else if (result.success && result.failed > 0) {
-      setSchedules(prev => prev.map(s => s.id === schedule.id ? { ...s, sentToQB: true } : s));
-      alert(`Partial success: ${result.created} created, ${result.failed} failed.\n\nErrors:\n${JSON.stringify(result.errors, null, 2) || 'Unknown errors'}`);
-    } else {
-      alert('Failed to send schedule. Please check your data and try again.');
+    setSendingScheduleIds(prev => ({ ...prev, [schedule.id]: true }));
+    try {
+      const result = await sendScheduleToQB(schedule);
+      if (result.success && result.failed === 0) {
+        // Mark as sent
+        setSchedules(prev => prev.map(s => s.id === schedule.id ? { ...s, sentToQB: true } : s));
+        if (result.unchanged) {
+          alert('This schedule has already been sent and has not changed.');
+          return;
+        }
+        alert(`✓ ${result.created} created, ${result.updated || 0} updated for ${schedule.dayName || 'this day'}!`);
+      } else if (result.success && result.failed > 0) {
+        setSchedules(prev => prev.map(s => s.id === schedule.id ? { ...s, sentToQB: true } : s));
+        alert(`Partial success: ${result.created} created, ${result.updated || 0} updated, ${result.failed} failed.\n\nErrors:\n${JSON.stringify(result.errors, null, 2) || 'Unknown errors'}`);
+      } else {
+        alert('Failed to send schedule. Please check your data and try again.');
+      }
+    } finally {
+      setSendingScheduleIds(prev => {
+        const next = { ...prev };
+        delete next[schedule.id];
+        return next;
+      });
     }
   };
 
@@ -241,6 +397,7 @@ export default function Home() {
       return a.date.localeCompare(b.date);
     });
     const parseLocal = (d: string) => { const [y, m, dd] = d.split('-').map(Number); return new Date(y, m - 1, dd); };
+    const formatAssignmentTime = (start?: string, end?: string) => `${start || '08:00'}-${end || '16:00'}`;
 
     const sections: string[] = [];
 
@@ -261,7 +418,7 @@ export default function Home() {
         pm.assignments.forEach(a => {
           const workers = a.workers.length > 0 ? a.workers.join(', ') : '(no workers)';
           const job = a.job || '(no job)';
-          lines.push(`  ${workers}  \u2014  ${job}`);
+          lines.push(`  ${formatAssignmentTime(a.startTime, a.endTime)}  ${workers}  \u2014  ${job}`);
         });
       });
 
@@ -360,6 +517,30 @@ export default function Home() {
               </button>
             )}
           </div>
+
+          <div className="mt-3 sm:mt-4 flex items-center gap-2 sm:gap-3 flex-wrap border-t border-gray-100 pt-3">
+            <span className="text-xs sm:text-sm font-medium text-gray-600">Import QB:</span>
+            <input
+              type="date"
+              value={qbImportFrom}
+              onChange={e => setQbImportFrom(e.target.value)}
+              className="px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            <span className="text-gray-400 text-xs sm:text-sm">to</span>
+            <input
+              type="date"
+              value={qbImportTo}
+              onChange={e => setQbImportTo(e.target.value)}
+              className="px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            <button
+              onClick={importFromQB}
+              disabled={importingFromQB}
+              className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:bg-gray-300"
+            >
+              {importingFromQB ? 'Importing...' : 'Pull from QB'}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -390,6 +571,7 @@ export default function Home() {
           <div key={schedule.id} id={`daycard-${schedule.id}`}>
             <DayCard
               schedule={schedule}
+              isSending={!!sendingScheduleIds[schedule.id]}
               onChange={updateSchedule}
               onDelete={() => deleteSchedule(schedule.id)}
               onCopy={() => copySchedule(schedule)}
