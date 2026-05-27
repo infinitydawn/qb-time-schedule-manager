@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { DailySchedule, ProjectManager, WorkerAssignment } from '@/types/schedule';
 
 const firstName = (name: string) => name.split(' ')[0];
@@ -35,6 +35,16 @@ const formatTime = (time?: string) => {
 const timeSummary = (assignment: WorkerAssignment) =>
   `${formatTime(assignment.startTime || DEFAULT_START_TIME)}-${formatTime(assignment.endTime || DEFAULT_END_TIME)}`;
 
+const formatAssignmentSummary = (
+  assignment: WorkerAssignment,
+  showTimeInSummary: boolean,
+  separator: string = ' - '
+) => {
+  const workers = assignment.workers.length > 0 ? assignment.workers.map(firstName).join(', ') : '(no workers)';
+  const summary = `${workers}${separator}${shortJob(assignment.job)}`;
+  return showTimeInSummary ? `${timeSummary(assignment)}  ${summary}` : summary;
+};
+
 const timeToMinutes = (time?: string) => {
   const [hours = '0', minutes = '0'] = (time || '').split(':');
   return Number(hours) * 60 + Number(minutes);
@@ -63,6 +73,7 @@ interface PMBlock {
 interface DayCardProps {
   schedule: DailySchedule;
   isSending?: boolean;
+  showTimeInSummary?: boolean;
   onChange: (schedule: DailySchedule) => void;
   onDelete: () => void;
   onCopy: () => void;
@@ -72,12 +83,26 @@ interface DayCardProps {
   jobList?: string[];
 }
 
-const DayCard: React.FC<DayCardProps> = ({ schedule, isSending = false, onChange, onDelete, onCopy, onSendToQB, pmList, techList, jobList }) => {
+const DayCard: React.FC<DayCardProps> = ({
+  schedule,
+  isSending = false,
+  showTimeInSummary = false,
+  onChange,
+  onDelete,
+  onCopy,
+  onSendToQB,
+  pmList,
+  techList,
+  jobList
+}) => {
   const availablePMs = pmList ?? [];
   const availableEmployees = techList ?? [];
   const availableJobs = jobList ?? [];
   const [collapsed, setCollapsed] = useState(true);
   const [dateBlink, setDateBlink] = useState(false);
+  const localIdCounter = useRef(0);
+
+  const nextLocalId = (prefix: string) => `${prefix}-${++localIdCounter.current}`;
 
   const parseLocalDate = (dateStr: string) => {
     const [y, m, d] = dateStr.split('-').map(Number);
@@ -94,7 +119,7 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, isSending = false, onChange
   // Add a new PM block
   const addPM = () => {
     const newPM: ProjectManager = {
-      id: `pm-${Date.now()}`,
+      id: nextLocalId('pm'),
       name: '',
       assignments: []
     };
@@ -125,7 +150,7 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, isSending = false, onChange
   // Add job row under a PM
   const addJobRow = (pmId: string) => {
     const newAssignment: WorkerAssignment = {
-      id: `job-${Date.now()}`,
+      id: nextLocalId('job'),
       workers: [],
       job: '',
       pmId,
@@ -272,9 +297,7 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, isSending = false, onChange
             const lines: string[] = [];
             if (pm.name) lines.push(pm.name);
             pm.assignments.forEach(a => {
-              const workers = a.workers.length > 0 ? a.workers.map(firstName).join(', ') : '(no workers)';
-              const job = `${timeSummary(a)}  ${shortJob(a.job)}`;
-              lines.push(`  ${workers} – ${job}`);
+              lines.push(`  ${formatAssignmentSummary(a, showTimeInSummary, ' – ')}`);
             });
             return lines.join('\n');
           }).filter(Boolean).join('\n\n')}
@@ -301,12 +324,13 @@ const DayCard: React.FC<DayCardProps> = ({ schedule, isSending = false, onChange
 
           {/* PM blocks */}
           {schedule.projectManagers.map(pm => (
-            <PMBlock
+          <PMBlock
               key={pm.id}
               pm={pm}
               availablePMs={availablePMs}
               availableEmployees={availableEmployees}
               availableJobs={availableJobs}
+              showTimeInSummary={showTimeInSummary}
               disabled={isSending}
               onUpdateName={(name) => updatePMName(pm.id, name)}
               onRemove={() => removePM(pm.id)}
@@ -344,6 +368,7 @@ interface PMBlockProps {
   availablePMs: string[];
   availableEmployees: string[];
   availableJobs: string[];
+  showTimeInSummary: boolean;
   onUpdateName: (name: string) => void;
   onRemove: () => void;
   onAddJob: () => void;
@@ -354,7 +379,7 @@ interface PMBlockProps {
 }
 
 const PMBlock: React.FC<PMBlockProps> = ({
-  pm, disabled = false, availablePMs, availableEmployees, availableJobs,
+  pm, disabled = false, availablePMs, availableEmployees, availableJobs, showTimeInSummary,
   onUpdateName, onRemove, onAddJob, onToggleWorker, onChangeJob, onChangeTime, onRemoveJob
 }) => {
   const [collapsed, setCollapsed] = useState(false);
@@ -399,9 +424,7 @@ const PMBlock: React.FC<PMBlockProps> = ({
       {collapsed && pm.assignments.length > 0 && (
         <div className="px-4 py-2 bg-gray-50 text-xs text-gray-600 font-mono whitespace-pre-line">
           {pm.assignments.map(a => {
-            const workers = a.workers.length > 0 ? a.workers.map(firstName).join(', ') : '(no workers)';
-            const job = `${timeSummary(a)}  ${shortJob(a.job)}`;
-            return `${workers} – ${job}`;
+            return formatAssignmentSummary(a, showTimeInSummary, ' – ');
           }).join('\n')}
         </div>
       )}
@@ -416,6 +439,7 @@ const PMBlock: React.FC<PMBlockProps> = ({
               disabled={disabled}
               availableEmployees={availableEmployees}
               availableJobs={availableJobs}
+              showTimeInSummary={showTimeInSummary}
               onToggleWorker={(worker) => onToggleWorker(assignment.id, worker)}
               onChangeJob={(job) => onChangeJob(assignment.id, job)}
               onChangeTime={(field, time) => onChangeTime(assignment.id, field, time)}
@@ -443,6 +467,7 @@ interface JobRowEditorProps {
   disabled?: boolean;
   availableEmployees: string[];
   availableJobs: string[];
+  showTimeInSummary: boolean;
   onToggleWorker: (worker: string) => void;
   onChangeJob: (job: string) => void;
   onChangeTime: (field: 'startTime' | 'endTime', time: string) => void;
@@ -454,6 +479,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
   disabled = false,
   availableEmployees,
   availableJobs,
+  showTimeInSummary,
   onToggleWorker,
   onChangeJob,
   onChangeTime,
@@ -486,8 +512,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
     .filter(emp => emp.toLowerCase().includes(techSearch.toLowerCase()))
     .sort((a, b) => a.localeCompare(b));
 
-  const summaryText = `${assignment.workers.length > 0 ? assignment.workers.map(firstName).join(', ') : '(no workers)'} - ${shortJob(assignment.job)}`;
-  const timedSummaryText = `${timeSummary(assignment)}  ${summaryText}`;
+  const summaryText = formatAssignmentSummary(assignment, showTimeInSummary);
 
   return (
     <div className="border border-gray-200 rounded bg-gray-50">
@@ -497,7 +522,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
         onClick={() => { if (!disabled) setCollapsed(!collapsed); }}
       >
         <span className="text-gray-400 text-xs">{collapsed ? '▶' : '▼'}</span>
-        <span className="flex-1 text-sm text-gray-700 truncate">{timedSummaryText}</span>
+        <span className="flex-1 text-sm text-gray-700 truncate">{summaryText}</span>
         <button
           disabled={disabled}
           onClick={e => { e.stopPropagation(); onRemove(); }}

@@ -66,10 +66,13 @@ const dedupeSchedulesByDate = (items: DailySchedule[]) => {
   return deduped;
 };
 
+const SUMMARY_TIME_STORAGE_KEY = 'work-schedule-show-time-in-summary-v1';
+
 export default function Home() {
   const [schedules, setSchedules] = useState<DailySchedule[]>([]);
   const [sendingScheduleIds, setSendingScheduleIds] = useState<Record<string, boolean>>({});
   const [showQBManager, setShowQBManager] = useState(false);
+  const [showTimeInSummary, setShowTimeInSummary] = useState(false);
   const [dbStatus, setDbStatus] = useState<'loading' | 'ok' | 'error'>('loading');
   const [importingFromQB, setImportingFromQB] = useState(false);
 
@@ -95,6 +98,20 @@ export default function Home() {
 
   // Ref to skip the first save triggered by loading
   const initialLoadDone = useRef(false);
+  const summarySettingsLoaded = useRef(false);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(SUMMARY_TIME_STORAGE_KEY);
+      if (stored !== null) {
+        setShowTimeInSummary(stored === 'true');
+      }
+    } catch (error) {
+      console.warn('Failed to load summary time preference', error);
+    } finally {
+      summarySettingsLoaded.current = true;
+    }
+  }, []);
 
   // Load on mount — try DB first, fall back to localStorage
   useEffect(() => {
@@ -171,6 +188,16 @@ export default function Home() {
       }).catch(() => setDbStatus('error'));
     }, 500);
   }, [schedules]);
+
+  useEffect(() => {
+    if (!summarySettingsLoaded.current) return;
+
+    try {
+      localStorage.setItem(SUMMARY_TIME_STORAGE_KEY, String(showTimeInSummary));
+    } catch (error) {
+      console.warn('Failed to save summary time preference', error);
+    }
+  }, [showTimeInSummary]);
 
   // Add a blank day card
   const addDay = () => {
@@ -484,13 +511,22 @@ export default function Home() {
               <span className="text-lg sm:text-2xl font-bold mr-1 sm:mr-2">{filteredWorkers}</span>
               <span className="text-green-100 text-xs sm:text-sm">Workers</span>
             </div>
-            <button
-              onClick={exportSchedule}
-              className="bg-gradient-to-r from-purple-500 to-purple-600 text-white px-3 sm:px-5 py-2 sm:py-3 rounded-lg hover:from-purple-600 hover:to-purple-700 transition-colors font-semibold text-xs sm:text-sm"
-            >
-              Export
-            </button>
-          </div>
+              <button
+                onClick={exportSchedule}
+                className="bg-gradient-to-r from-purple-500 to-purple-600 text-white px-3 sm:px-5 py-2 sm:py-3 rounded-lg hover:from-purple-600 hover:to-purple-700 transition-colors font-semibold text-xs sm:text-sm"
+              >
+                Export
+              </button>
+              <label className="inline-flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-3 sm:px-4 py-2 sm:py-3 rounded-lg shadow-sm">
+                <input
+                  type="checkbox"
+                  checked={showTimeInSummary}
+                  onChange={e => setShowTimeInSummary(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-xs sm:text-sm font-semibold">Show time in summary</span>
+              </label>
+            </div>
 
           {/* Date range filter */}
           <div className="mt-3 sm:mt-4 flex items-center gap-2 sm:gap-3 flex-wrap">
@@ -572,6 +608,7 @@ export default function Home() {
             <DayCard
               schedule={schedule}
               isSending={!!sendingScheduleIds[schedule.id]}
+              showTimeInSummary={showTimeInSummary}
               onChange={updateSchedule}
               onDelete={() => deleteSchedule(schedule.id)}
               onCopy={() => copySchedule(schedule)}
