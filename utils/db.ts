@@ -1,38 +1,16 @@
 import { Pool } from 'pg';
-import fs from 'fs';
-import path from 'path';
 
 let pool: Pool | null = null;
 
 export function getPool(): Pool {
   if (!pool) {
-    // CA cert: prefer env var (for Vercel), fall back to local file
-    let ca: string | undefined = process.env.DB_CA_CERT;
-    if (!ca) {
-      const caPath = path.join(process.cwd(), 'ca.pem');
-      if (fs.existsSync(caPath)) {
-        ca = fs.readFileSync(caPath).toString();
-      }
-    }
-
-    pool = new Pool({
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      host: process.env.DB_HOST,
-      port: Number(process.env.DB_PORT) || 26276,
-      database: process.env.DB_NAME || 'defaultdb',
-      ssl: ca
-        ? { rejectUnauthorized: true, ca }
-        : { rejectUnauthorized: false },
+    const poolConfig = {
       max: 5,
       idleTimeoutMillis: 30000,
-    });
+      enableChannelBinding: process.env.PGCHANNELBINDING === 'require',
+    };
 
-    // Allow connections to databases that use self-signed certificates
-    // when no explicit CA cert is provided
-    if (!ca) {
-      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-    }
+    pool = new Pool(poolConfig);
   }
   return pool;
 }
