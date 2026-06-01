@@ -74,6 +74,7 @@ interface DayCardProps {
   schedule: DailySchedule;
   isSending?: boolean;
   showTimeInSummary?: boolean;
+  refreshJobs?: () => Promise<boolean>;
   onChange: (schedule: DailySchedule) => void;
   onDelete: () => void;
   onCopy: () => void;
@@ -87,6 +88,7 @@ const DayCard: React.FC<DayCardProps> = ({
   schedule,
   isSending = false,
   showTimeInSummary = false,
+  refreshJobs,
   onChange,
   onDelete,
   onCopy,
@@ -331,6 +333,7 @@ const DayCard: React.FC<DayCardProps> = ({
               availableEmployees={availableEmployees}
               availableJobs={availableJobs}
               showTimeInSummary={showTimeInSummary}
+              refreshJobs={refreshJobs}
               disabled={isSending}
               onUpdateName={(name) => updatePMName(pm.id, name)}
               onRemove={() => removePM(pm.id)}
@@ -369,6 +372,7 @@ interface PMBlockProps {
   availableEmployees: string[];
   availableJobs: string[];
   showTimeInSummary: boolean;
+  refreshJobs?: () => Promise<boolean>;
   onUpdateName: (name: string) => void;
   onRemove: () => void;
   onAddJob: () => void;
@@ -379,7 +383,7 @@ interface PMBlockProps {
 }
 
 const PMBlock: React.FC<PMBlockProps> = ({
-  pm, disabled = false, availablePMs, availableEmployees, availableJobs, showTimeInSummary,
+  pm, disabled = false, availablePMs, availableEmployees, availableJobs, showTimeInSummary, refreshJobs,
   onUpdateName, onRemove, onAddJob, onToggleWorker, onChangeJob, onChangeTime, onRemoveJob
 }) => {
   const [collapsed, setCollapsed] = useState(false);
@@ -443,6 +447,7 @@ const PMBlock: React.FC<PMBlockProps> = ({
               availableEmployees={availableEmployees}
               availableJobs={availableJobs}
               showTimeInSummary={showTimeInSummary}
+              refreshJobs={refreshJobs}
               onToggleWorker={(worker) => onToggleWorker(assignment.id, worker)}
               onChangeJob={(job) => onChangeJob(assignment.id, job)}
               onChangeTime={(field, time) => onChangeTime(assignment.id, field, time)}
@@ -471,6 +476,7 @@ interface JobRowEditorProps {
   availableEmployees: string[];
   availableJobs: string[];
   showTimeInSummary: boolean;
+  refreshJobs?: () => Promise<boolean>;
   onToggleWorker: (worker: string) => void;
   onChangeJob: (job: string) => void;
   onChangeTime: (field: 'startTime' | 'endTime', time: string) => void;
@@ -483,6 +489,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
   availableEmployees,
   availableJobs,
   showTimeInSummary,
+  refreshJobs,
   onToggleWorker,
   onChangeJob,
   onChangeTime,
@@ -494,6 +501,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
   const [jobSearch, setJobSearch] = useState('');
   const [techSearch, setTechSearch] = useState('');
   const [showJobDropdown, setShowJobDropdown] = useState(false);
+  const [refreshingJobs, setRefreshingJobs] = useState(false);
   const jobRef = React.useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
@@ -506,6 +514,27 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  React.useEffect(() => {
+    if (!showJobDropdown || !refreshJobs) return;
+
+    let cancelled = false;
+    setRefreshingJobs(true);
+
+    (async () => {
+      const ok = await refreshJobs();
+      if (cancelled) return;
+      setRefreshingJobs(false);
+      if (!ok) {
+        window.alert('Unable to refresh QuickBooks addresses right now. Showing the last loaded list.');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      setRefreshingJobs(false);
+    };
+  }, [showJobDropdown, refreshJobs]);
 
   const filteredJobs = availableJobs.filter(job =>
     job.toLowerCase().includes(jobSearch.toLowerCase())
@@ -554,7 +583,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
 
             <span className="text-gray-400 hidden sm:inline">–</span>
 
-            {/* Searchable Job dropdown */}
+            {/* Searchable address dropdown */}
             <div ref={jobRef} className="relative">
               <button
                 type="button"
@@ -562,18 +591,23 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
                 onClick={() => { setShowJobDropdown(!showJobDropdown); setJobSearch(''); }}
                 className="w-full sm:w-auto px-2 py-1.5 text-sm border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 sm:min-w-[180px] text-left truncate"
               >
-                {assignment.job || <span className="text-gray-400">Select job</span>}
+                {assignment.job || <span className="text-gray-400">Select address</span>}
               </button>
 
               {showJobDropdown && (
                 <div className="absolute z-50 mt-1 w-full sm:w-64 bg-white border border-gray-300 rounded shadow-lg">
+                  {refreshingJobs && (
+                    <div className="px-3 py-2 text-xs text-blue-700 bg-blue-50 border-b border-blue-100">
+                      Refreshing addresses from QuickBooks...
+                    </div>
+                  )}
                   <input
                     type="text"
                     autoFocus
                     disabled={disabled}
                     value={jobSearch}
                     onChange={e => setJobSearch(e.target.value)}
-                    placeholder="Search jobs..."
+                    placeholder="Search addresses..."
                     className="w-full px-3 py-2 text-sm border-b border-gray-200 focus:outline-none"
                   />
                   <div className="max-h-48 overflow-y-auto">
@@ -584,7 +618,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
                         onClick={() => { onChangeJob(''); setShowJobDropdown(false); }}
                         className="w-full text-left px-3 py-1.5 text-sm text-gray-400 hover:bg-gray-100"
                       >
-                        Clear selection
+                        Clear address
                       </button>
                     )}
                     {filteredJobs.length > 0 ? (
@@ -602,7 +636,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
                         </button>
                       ))
                     ) : (
-                      <div className="px-3 py-2 text-sm text-gray-400">No jobs found</div>
+                      <div className="px-3 py-2 text-sm text-gray-400">No addresses found</div>
                     )}
                   </div>
                 </div>

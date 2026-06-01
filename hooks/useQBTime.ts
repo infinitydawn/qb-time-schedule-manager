@@ -66,7 +66,7 @@ interface UseQBTimeReturn {
   checkConnection: () => Promise<boolean>;
   fetchProjectManagers: () => Promise<void>;
   fetchTechnicians: () => Promise<void>;
-  fetchJobs: () => Promise<void>;
+  fetchJobs: () => Promise<boolean>;
   sendScheduleToQB: (schedule: DailySchedule) => Promise<SendScheduleResult>;
   disconnect: () => void;
 }
@@ -100,10 +100,10 @@ export const useQBTime = (): UseQBTimeReturn => {
   // Auto-fetch PMs, techs, jobs when connected
   useEffect(() => {
     if (isConnected) {
-      if (projectManagers.length === 0) fetchProjectManagers();
-      if (technicians.length === 0) fetchTechnicians();
-      if (jobs.length === 0) fetchJobs();
-      if (customFields.length === 0) fetchCustomFields();
+      if (projectManagers.length === 0) void fetchProjectManagers();
+      if (technicians.length === 0) void fetchTechnicians();
+      if (jobs.length === 0) void fetchJobs();
+      if (customFields.length === 0) void fetchCustomFields();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected]);
@@ -158,7 +158,6 @@ export const useQBTime = (): UseQBTimeReturn => {
 
       if (!res.ok) {
         setError(data.error || 'Failed to fetch project managers');
-        setLoading(false);
         return;
       }
 
@@ -172,7 +171,7 @@ export const useQBTime = (): UseQBTimeReturn => {
 
   const fetchTechnicians = useCallback(async (): Promise<void> => {
     if (!isConnected) {
-      setError('Not connected — QB token not configured on server');
+      setError('Not connected to QuickBooks Time');
       return;
     }
 
@@ -202,10 +201,10 @@ export const useQBTime = (): UseQBTimeReturn => {
     }
   }, [isConnected]);
 
-  const fetchJobs = useCallback(async (): Promise<void> => {
+  const fetchJobs = useCallback(async (): Promise<boolean> => {
     if (!isConnected) {
-      setError('Not connected — QB token not configured on server');
-      return;
+      setError('Not connected to QuickBooks Time');
+      return false;
     }
 
     setLoading(true);
@@ -221,15 +220,16 @@ export const useQBTime = (): UseQBTimeReturn => {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || 'Failed to fetch jobs');
-        setLoading(false);
-        return;
+        setError(data.error || 'Failed to fetch addresses from QuickBooks');
+        return false;
       }
 
       setJobs(data.jobs || []);
-      setLoading(false);
+      return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch jobs');
+      setError(err instanceof Error ? err.message : 'Failed to fetch addresses from QuickBooks');
+      return false;
+    } finally {
       setLoading(false);
     }
   }, [isConnected]);

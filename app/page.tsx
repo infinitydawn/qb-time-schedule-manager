@@ -88,7 +88,7 @@ export default function Home() {
   const [qbImportFrom, setQbImportFrom] = useState(toISO(sevenDaysAgo));
   const [qbImportTo, setQbImportTo] = useState(toISO(sevenDaysAhead));
 
-  const { isConnected, sendScheduleToQB, projectManagers, technicians, jobs } = useQBTime();
+  const { isConnected, sendScheduleToQB, projectManagers, technicians, jobs, fetchJobs } = useQBTime();
 
   // Map QB Time PMs and techs to name strings for DayCard
   const schedulePMNames = schedules.flatMap(schedule =>
@@ -648,6 +648,7 @@ export default function Home() {
               pmList={pmNames}
               techList={techNames}
               jobList={jobNames}
+              refreshJobs={fetchJobs}
             />
           </div>
         ))}
