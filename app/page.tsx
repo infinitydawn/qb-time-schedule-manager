@@ -91,7 +91,13 @@ export default function Home() {
   const { isConnected, sendScheduleToQB, projectManagers, technicians, jobs } = useQBTime();
 
   // Map QB Time PMs and techs to name strings for DayCard
-  const pmNames = projectManagers.map(pm => pm.name);
+  const schedulePMNames = schedules.flatMap(schedule =>
+    schedule.projectManagers.map(pm => pm.name).filter(Boolean)
+  );
+  const pmNames = Array.from(new Set([
+    ...projectManagers.map(pm => pm.name).filter(Boolean),
+    ...schedulePMNames,
+  ]));
   const techNames = technicians.map(t => t.name);
   const jobNames = jobs.map(j => j.name);
   const { loadSchedules, saveSchedules } = useScheduleStorage();
@@ -297,24 +303,27 @@ export default function Home() {
   };
 
   const importFromQB = async () => {
+    const importStart = qbImportFrom;
+    const importEnd = qbImportTo;
+
     if (!isConnected) {
       alert('Please connect to QuickBooks Time first');
       setShowQBManager(true);
       return;
     }
 
-    if (!qbImportFrom || !qbImportTo) {
+    if (!importStart || !importEnd) {
       alert('Enter both a start date and an end date.');
       return;
     }
 
-    if (qbImportFrom > qbImportTo) {
+    if (importStart > importEnd) {
       alert('Start date must be before or equal to end date.');
       return;
     }
 
     const confirmed = window.confirm(
-      `Import QuickBooks schedules from ${qbImportFrom} through ${qbImportTo}?\n\nThis will replace all existing days in the app.`
+      `Import QuickBooks schedules from ${importStart} through ${importEnd}?\n\nThis will replace any existing days in that date range only. Days outside the range will stay untouched, and dates in the range with no QuickBooks schedule will be removed.`
     );
     if (!confirmed) return;
 
@@ -324,7 +333,7 @@ export default function Home() {
       const res = await fetch('/api/qbtime/import-schedules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ startDate: qbImportFrom, endDate: qbImportTo }),
+        body: JSON.stringify({ startDate: importStart, endDate: importEnd }),
       });
       const data = await res.json();
 
@@ -334,12 +343,35 @@ export default function Home() {
       }
 
       const imported = dedupeSchedulesByDate(data.schedules || []);
-      const dateMap: Record<string, string> = {};
-      imported.forEach(schedule => { dateMap[schedule.id] = schedule.date; });
-      prevDatesRef.current = dateMap;
-      setSchedules(imported);
+      setSchedules(prev => {
+        const remaining = prev.filter(schedule => {
+          if (!schedule.date) return true;
+          return schedule.date < importStart || schedule.date > importEnd;
+        });
+        const merged = dedupeSchedulesByDate([...remaining, ...imported]);
+
+        const dateMap: Record<string, string> = {};
+        merged.forEach(schedule => { dateMap[schedule.id] = schedule.date; });
+        prevDatesRef.current = dateMap;
+
+        return merged;
+      });
       setDbStatus('ok');
-      alert(`Imported ${data.importedEvents || 0} QuickBooks schedule event(s).`);
+      const importedDays = data.importedDays ?? imported.length;
+      const replacedDays = data.deletedSchedules ?? 0;
+      const importedEvents = data.importedEvents ?? 0;
+
+      if (importedDays === 0) {
+        alert(
+          replacedDays > 0
+            ? `No QuickBooks schedule days were found from ${importStart} through ${importEnd}. ${replacedDays} existing day(s) in that range were removed.`
+            : `No QuickBooks schedule days were found from ${importStart} through ${importEnd}.`
+        );
+      } else {
+        alert(
+          `Imported ${importedDays} QuickBooks schedule day(s) from ${importedEvents} event(s). ${replacedDays} existing day(s) in the selected range were replaced.`
+        );
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to import from QuickBooks.');
     } finally {

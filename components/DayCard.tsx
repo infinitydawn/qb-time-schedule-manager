@@ -384,6 +384,9 @@ const PMBlock: React.FC<PMBlockProps> = ({
 }) => {
   const [collapsed, setCollapsed] = useState(false);
   const workerCount = pm.assignments.reduce((t, a) => t + a.workers.length, 0);
+  const pmOptions = pm.name
+    ? Array.from(new Set([pm.name, ...availablePMs]))
+    : availablePMs;
 
   return (
     <div className="border border-gray-200 rounded-lg">
@@ -402,7 +405,7 @@ const PMBlock: React.FC<PMBlockProps> = ({
               className="px-2 py-1 text-sm font-bold border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 max-w-[160px] sm:max-w-none"
             >
               <option value="">Select PM</option>
-              {availablePMs.map(p => (
+              {pmOptions.map(p => (
                 <option key={p} value={p}>{p}</option>
               ))}
             </select>

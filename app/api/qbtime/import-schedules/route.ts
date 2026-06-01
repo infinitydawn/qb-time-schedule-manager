@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getQBHeaders, TSHEETS_BASE } from '@/utils/qbtoken';
 import { getPool, initDb } from '@/utils/db';
 import { getScheduleFingerprintInput } from '@/utils/scheduleFingerprint';
-import { DailySchedule, ProjectManager, WorkerAssignment } from '@/types/schedule';
+import { DailySchedule, WorkerAssignment } from '@/types/schedule';
 import crypto from 'crypto';
 
 interface QBEvent {
@@ -26,6 +26,20 @@ interface SupplementalUser {
 interface SupplementalJobcode {
   id: string | number;
   name?: string;
+}
+
+interface QBEventSearchResponse {
+  results?: {
+    schedule_events?: Record<string, QBEvent>;
+  };
+  supplemental_data?: {
+    users?: Record<string, SupplementalUser>;
+    jobcodes?: Record<string, SupplementalJobcode>;
+  };
+  error?: {
+    message?: string;
+  } | string;
+  _status_message?: string;
 }
 
 const DEFAULT_START_TIME = '08:00';
@@ -182,9 +196,9 @@ async function fetchScheduleEvents(startDate: string, endDate: string) {
 
     const res = await fetch(`${TSHEETS_BASE}/schedule_events?${params.toString()}`, { headers });
     const text = await res.text();
-    let data: any;
+    let data: QBEventSearchResponse | string;
     try {
-      data = JSON.parse(text);
+      data = JSON.parse(text) as QBEventSearchResponse;
     } catch {
       data = text;
     }
@@ -197,18 +211,22 @@ async function fetchScheduleEvents(startDate: string, endDate: string) {
       });
       const detail = typeof data === 'string'
         ? data
-        : data.error?.message || data.error || data._status_message || JSON.stringify(data);
+        : typeof data.error === 'string'
+          ? data.error
+          : data.error?.message || data._status_message || JSON.stringify(data);
       throw new Error(`QuickBooks schedule_events error ${res.status} for ${date}: ${detail}`);
     }
 
-    const rawEvents = data.results?.schedule_events || {};
+    const rawEvents = typeof data === 'string' ? {} : data.results?.schedule_events || {};
     const pageEvents = Object.values(rawEvents) as QBEvent[];
     for (const event of pageEvents) {
       if (event.id) eventsById.set(String(event.id), event);
     }
 
-    Object.assign(usersById, data.supplemental_data?.users || {});
-    Object.assign(jobcodesById, data.supplemental_data?.jobcodes || {});
+    if (typeof data !== 'string') {
+      Object.assign(usersById, data.supplemental_data?.users || {});
+      Object.assign(jobcodesById, data.supplemental_data?.jobcodes || {});
+    }
   }
 
   return { events: [...eventsById.values()], usersById, jobcodesById };
@@ -293,14 +311,17 @@ function eventsToSchedules(
   return [...schedulesByDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
-async function replaceSchedules(schedules: DailySchedule[]) {
+async function replaceSchedules(startDate: string, endDate: string, schedules: DailySchedule[]) {
   await initDb();
   const db = getPool();
   const client = await db.connect();
 
   try {
     await client.query('BEGIN');
-    await client.query('DELETE FROM schedules');
+    const deleteResult = await client.query(
+      'DELETE FROM schedules WHERE date >= $1 AND date <= $2',
+      [startDate, endDate]
+    );
 
     for (const schedule of schedules) {
       const qbHash = crypto.createHash('sha256').update(getScheduleFingerprintInput(schedule)).digest('hex');
@@ -341,6 +362,9 @@ async function replaceSchedules(schedules: DailySchedule[]) {
     }
 
     await client.query('COMMIT');
+    return {
+      deletedSchedules: deleteResult.rowCount ?? 0,
+    };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -363,17 +387,19 @@ export async function POST(req: NextRequest) {
 
     const { events, usersById, jobcodesById } = await fetchScheduleEvents(startDate, endDate);
     const schedules = eventsToSchedules(events, usersById, jobcodesById);
-    await replaceSchedules(schedules);
+    const { deletedSchedules } = await replaceSchedules(startDate, endDate, schedules);
 
     return NextResponse.json({
       ok: true,
       importedEvents: events.length,
+      importedDays: schedules.length,
+      deletedSchedules,
       schedules,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('QB Time Import Schedules API error:', err);
     return NextResponse.json(
-      { error: err.message || 'Internal server error' },
+      { error: err instanceof Error ? err.message : 'Internal server error' },
       { status: 500 }
     );
   }
