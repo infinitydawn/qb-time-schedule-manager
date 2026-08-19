@@ -72,6 +72,7 @@ interface PMBlock {
 
 interface DayCardProps {
   schedule: DailySchedule;
+  allSchedules?: DailySchedule[];
   isSending?: boolean;
   showTimeInSummary?: boolean;
   refreshJobs?: () => Promise<boolean>;
@@ -79,6 +80,7 @@ interface DayCardProps {
   onDelete: () => void;
   onCopy: () => void;
   onSendToQB: () => void;
+  onMovePM?: (pmId: string, targetScheduleId: string) => void;
   pmList?: string[];
   techList?: string[];
   jobList?: string[];
@@ -86,6 +88,7 @@ interface DayCardProps {
 
 const DayCard: React.FC<DayCardProps> = ({
   schedule,
+  allSchedules,
   isSending = false,
   showTimeInSummary = false,
   refreshJobs,
@@ -93,6 +96,7 @@ const DayCard: React.FC<DayCardProps> = ({
   onDelete,
   onCopy,
   onSendToQB,
+  onMovePM,
   pmList,
   techList,
   jobList
@@ -325,10 +329,23 @@ const DayCard: React.FC<DayCardProps> = ({
           </div>
 
           {/* PM blocks */}
-          {schedule.projectManagers.map(pm => (
-          <PMBlock
+          {schedule.projectManagers.map(pm => {
+            const otherDays = (allSchedules || [])
+              .filter(s => s.id !== schedule.id && s.date)
+              .sort((a, b) => a.date.localeCompare(b.date))
+              .map(s => {
+                const [y, m, d] = s.date.split('-').map(Number);
+                const label = new Date(y, m - 1, d).toLocaleDateString('en-US', {
+                  weekday: 'long', month: 'long', day: 'numeric'
+                });
+                return { id: s.id, label };
+              });
+
+            return (
+            <PMBlock
               key={pm.id}
               pm={pm}
+              otherDays={otherDays}
               availablePMs={availablePMs}
               availableEmployees={availableEmployees}
               availableJobs={availableJobs}
@@ -337,6 +354,7 @@ const DayCard: React.FC<DayCardProps> = ({
               disabled={isSending}
               onUpdateName={(name) => updatePMName(pm.id, name)}
               onRemove={() => removePM(pm.id)}
+              onMove={onMovePM ? (targetId) => onMovePM(pm.id, targetId) : undefined}
               onAddJob={() => addJobRow(pm.id)}
               onToggleWorker={(jobId, worker) => {
                 const a = pm.assignments.find(a => a.id === jobId);
@@ -346,7 +364,8 @@ const DayCard: React.FC<DayCardProps> = ({
               onChangeTime={(jobId, field, time) => updateJobRow(pm.id, jobId, field, time)}
               onRemoveJob={(jobId) => removeJobRow(pm.id, jobId)}
             />
-          ))}
+            );
+          })}
 
           {/* Add PM button */}
           <button
@@ -368,6 +387,7 @@ const DayCard: React.FC<DayCardProps> = ({
 interface PMBlockProps {
   pm: ProjectManager;
   disabled?: boolean;
+  otherDays?: { id: string; label: string }[];
   availablePMs: string[];
   availableEmployees: string[];
   availableJobs: string[];
@@ -375,6 +395,7 @@ interface PMBlockProps {
   refreshJobs?: () => Promise<boolean>;
   onUpdateName: (name: string) => void;
   onRemove: () => void;
+  onMove?: (targetScheduleId: string) => void;
   onAddJob: () => void;
   onToggleWorker: (jobId: string, worker: string) => void;
   onChangeJob: (jobId: string, job: string) => void;
@@ -383,8 +404,8 @@ interface PMBlockProps {
 }
 
 const PMBlock: React.FC<PMBlockProps> = ({
-  pm, disabled = false, availablePMs, availableEmployees, availableJobs, showTimeInSummary, refreshJobs,
-  onUpdateName, onRemove, onAddJob, onToggleWorker, onChangeJob, onChangeTime, onRemoveJob
+  pm, disabled = false, otherDays, availablePMs, availableEmployees, availableJobs, showTimeInSummary, refreshJobs,
+  onUpdateName, onRemove, onMove, onAddJob, onToggleWorker, onChangeJob, onChangeTime, onRemoveJob
 }) => {
   const [collapsed, setCollapsed] = useState(false);
   const workerCount = pm.assignments.reduce((t, a) => t + a.workers.length, 0);
@@ -418,13 +439,30 @@ const PMBlock: React.FC<PMBlockProps> = ({
             {pm.assignments.length} job(s) · {workerCount} worker(s)
           </span>
         </div>
-        <button
-          disabled={disabled}
-          onClick={e => { e.stopPropagation(); onRemove(); }}
-          className="sm:ml-auto text-red-400 hover:text-red-600 text-xs sm:text-sm self-end sm:self-auto"
-        >
-          remove PM
-        </button>
+        <div className="sm:ml-auto flex items-center gap-2 self-end sm:self-auto">
+          {onMove && otherDays && otherDays.length > 0 && (
+            <div onClick={e => e.stopPropagation()}>
+              <select
+                disabled={disabled}
+                value=""
+                onChange={e => { if (e.target.value) onMove(e.target.value); }}
+                className="px-2 py-1 text-xs border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400 max-w-[120px] sm:max-w-none"
+              >
+                <option value="">Move to...</option>
+                {otherDays.map(day => (
+                  <option key={day.id} value={day.id}>{day.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <button
+            disabled={disabled}
+            onClick={e => { e.stopPropagation(); onRemove(); }}
+            className="text-red-400 hover:text-red-600 text-xs sm:text-sm"
+          >
+            remove PM
+          </button>
+        </div>
       </div>
 
       {/* Collapsed summary */}

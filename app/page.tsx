@@ -273,6 +273,35 @@ export default function Home() {
     }
   };
 
+  const movePM = (sourceScheduleId: string, pmId: string, targetScheduleId: string) => {
+    setSchedules(prev => {
+      const sourceSchedule = prev.find(s => s.id === sourceScheduleId);
+      const pmToMove = sourceSchedule?.projectManagers.find(pm => pm.id === pmId);
+      if (!pmToMove) return prev;
+
+      return prev.map(s => {
+        if (s.id === sourceScheduleId) {
+          return {
+            ...s,
+            sentToQB: false,
+            qbHash: undefined,
+            projectManagers: s.projectManagers.filter(pm => pm.id !== pmId),
+          };
+        }
+        if (s.id === targetScheduleId) {
+          return {
+            ...s,
+            sentToQB: false,
+            qbHash: undefined,
+            projectManagers: [...s.projectManagers, pmToMove],
+          };
+        }
+        return s;
+      });
+    });
+    highlightCard(targetScheduleId);
+  };
+
   // Copy
   const copySchedule = (schedule: DailySchedule) => {
     const newId = `day-${Date.now()}`;
@@ -456,7 +485,16 @@ export default function Home() {
       return a.date.localeCompare(b.date);
     });
     const parseLocal = (d: string) => { const [y, m, dd] = d.split('-').map(Number); return new Date(y, m - 1, dd); };
-    const formatAssignmentTime = (start?: string, end?: string) => `${start || '08:00'}-${end || '16:00'}`;
+    const getFirstName = (name: string) => name.split(' ')[0];
+    const getShortJob = (job: string) => {
+      if (!job) return '(no job)';
+      const street = job.split(',')[0].trim();
+      const m = street.match(/^(\d[\d-]*)\s+(.+)/);
+      if (!m) return street;
+      const parts = m[2].split(/\s+/);
+      const streetName = parts.slice(0, 3).join(' ');
+      return `${m[1]} ${streetName}`;
+    };
 
     const sections: string[] = [];
 
@@ -475,9 +513,9 @@ export default function Home() {
         lines.push(pm.name || '(No PM)');
         lines.push('-'.repeat((pm.name || '(No PM)').length));
         pm.assignments.forEach(a => {
-          const workers = a.workers.length > 0 ? a.workers.join(', ') : '(no workers)';
-          const job = a.job || '(no job)';
-          lines.push(`  ${formatAssignmentTime(a.startTime, a.endTime)}  ${workers}  \u2014  ${job}`);
+          const workers = a.workers.length > 0 ? a.workers.map(getFirstName).join(', ') : '(no workers)';
+          const job = getShortJob(a.job);
+          lines.push(`  ${workers} \u2013 ${job}`);
         });
       });
 
@@ -639,12 +677,14 @@ export default function Home() {
           <div key={schedule.id} id={`daycard-${schedule.id}`}>
             <DayCard
               schedule={schedule}
+              allSchedules={schedules}
               isSending={!!sendingScheduleIds[schedule.id]}
               showTimeInSummary={showTimeInSummary}
               onChange={updateSchedule}
               onDelete={() => deleteSchedule(schedule.id)}
               onCopy={() => copySchedule(schedule)}
               onSendToQB={() => handleSendToQB(schedule)}
+              onMovePM={(pmId, targetId) => movePM(schedule.id, pmId, targetId)}
               pmList={pmNames}
               techList={techNames}
               jobList={jobNames}
