@@ -515,7 +515,7 @@ export default function Home() {
         pm.assignments.forEach(a => {
           const workers = a.workers.length > 0 ? a.workers.map(getFirstName).join(', ') : '(no workers)';
           const job = getShortJob(a.job);
-          lines.push(`  ${workers} \u2013 ${job}`);
+          lines.push(`  ${workers} - ${job}`);
         });
       });
 

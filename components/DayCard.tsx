@@ -123,6 +123,25 @@ const DayCard: React.FC<DayCardProps> = ({
   };
 
   // Add a new PM block
+  const moveJobToPM = (sourcePmId: string, jobId: string, targetPmId: string) => {
+    const sourcePM = schedule.projectManagers.find(pm => pm.id === sourcePmId);
+    const job = sourcePM?.assignments.find(a => a.id === jobId);
+    if (!job) return;
+    const movedJob = { ...job, pmId: targetPmId };
+    onChange({
+      ...schedule,
+      projectManagers: schedule.projectManagers.map(pm => {
+        if (pm.id === sourcePmId) {
+          return { ...pm, assignments: pm.assignments.filter(a => a.id !== jobId) };
+        }
+        if (pm.id === targetPmId) {
+          return { ...pm, assignments: [...pm.assignments, movedJob] };
+        }
+        return pm;
+      }),
+    });
+  };
+
   const addPM = () => {
     const newPM: ProjectManager = {
       id: nextLocalId('pm'),
@@ -363,6 +382,10 @@ const DayCard: React.FC<DayCardProps> = ({
               onChangeJob={(jobId, job) => updateJobRow(pm.id, jobId, 'job', job)}
               onChangeTime={(jobId, field, time) => updateJobRow(pm.id, jobId, field, time)}
               onRemoveJob={(jobId) => removeJobRow(pm.id, jobId)}
+              otherPMsInDay={schedule.projectManagers
+                .filter(p => p.id !== pm.id && p.name)
+                .map(p => ({ id: p.id, name: p.name }))}
+              onMoveJobToPM={(jobId, targetPmId) => moveJobToPM(pm.id, jobId, targetPmId)}
             />
             );
           })}
@@ -401,11 +424,14 @@ interface PMBlockProps {
   onChangeJob: (jobId: string, job: string) => void;
   onChangeTime: (jobId: string, field: 'startTime' | 'endTime', time: string) => void;
   onRemoveJob: (jobId: string) => void;
+  otherPMsInDay?: { id: string; name: string }[];
+  onMoveJobToPM?: (jobId: string, targetPmId: string) => void;
 }
 
 const PMBlock: React.FC<PMBlockProps> = ({
   pm, disabled = false, otherDays, availablePMs, availableEmployees, availableJobs, showTimeInSummary, refreshJobs,
-  onUpdateName, onRemove, onMove, onAddJob, onToggleWorker, onChangeJob, onChangeTime, onRemoveJob
+  onUpdateName, onRemove, onMove, onAddJob, onToggleWorker, onChangeJob, onChangeTime, onRemoveJob,
+  otherPMsInDay, onMoveJobToPM
 }) => {
   const [collapsed, setCollapsed] = useState(false);
   const workerCount = pm.assignments.reduce((t, a) => t + a.workers.length, 0);
@@ -482,6 +508,7 @@ const PMBlock: React.FC<PMBlockProps> = ({
               key={assignment.id}
               assignment={assignment}
               disabled={disabled}
+              otherPMs={otherPMsInDay}
               availableEmployees={availableEmployees}
               availableJobs={availableJobs}
               showTimeInSummary={showTimeInSummary}
@@ -490,6 +517,7 @@ const PMBlock: React.FC<PMBlockProps> = ({
               onChangeJob={(job) => onChangeJob(assignment.id, job)}
               onChangeTime={(field, time) => onChangeTime(assignment.id, field, time)}
               onRemove={() => onRemoveJob(assignment.id)}
+              onMoveToPM={onMoveJobToPM ? (targetPmId) => onMoveJobToPM(assignment.id, targetPmId) : undefined}
             />
           ))}
 
@@ -511,6 +539,7 @@ const PMBlock: React.FC<PMBlockProps> = ({
 interface JobRowEditorProps {
   assignment: WorkerAssignment;
   disabled?: boolean;
+  otherPMs?: { id: string; name: string }[];
   availableEmployees: string[];
   availableJobs: string[];
   showTimeInSummary: boolean;
@@ -519,11 +548,13 @@ interface JobRowEditorProps {
   onChangeJob: (job: string) => void;
   onChangeTime: (field: 'startTime' | 'endTime', time: string) => void;
   onRemove: () => void;
+  onMoveToPM?: (targetPmId: string) => void;
 }
 
 const JobRowEditor: React.FC<JobRowEditorProps> = ({
   assignment,
   disabled = false,
+  otherPMs,
   availableEmployees,
   availableJobs,
   showTimeInSummary,
@@ -531,7 +562,8 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
   onToggleWorker,
   onChangeJob,
   onChangeTime,
-  onRemove
+  onRemove,
+  onMoveToPM
 }) => {
   const [showEmployees, setShowEmployees] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -713,6 +745,19 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
                 onChange={e => onChangeTime('endTime', e.target.value)}
                 className="px-2 py-1 border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
               />
+              {onMoveToPM && otherPMs && otherPMs.length > 0 && (
+                <select
+                  disabled={disabled}
+                  value=""
+                  onChange={e => { if (e.target.value) onMoveToPM(e.target.value); }}
+                  className="px-2 py-1 text-xs border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                >
+                  <option value="">Move to PM...</option>
+                  {otherPMs.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              )}
             </div>
           )}
 
