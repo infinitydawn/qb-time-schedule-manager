@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { WorkerAssignment } from '@/types/schedule';
-import { isTechActive, ReviewDayData, ReviewTimesheet, ReviewUser } from '@/types/review';
+import { isTechActive, ReviewDayData, ReviewTimesheet, ReviewUser, workDetailsFor } from '@/types/review';
 import { ReviewActions } from '@/hooks/useReviewActions';
 
 const Spinner = () => (
@@ -48,8 +48,9 @@ interface ReviewFeedProps {
 const ReviewFeed: React.FC<ReviewFeedProps> = ({
   assignment, date, data, loading, error, techIdByName, jobId, actions, onRefresh,
 }) => {
-  const floor = assignment.floor?.trim();
-  const workType = assignment.workType?.trim();
+  // From the QB schedule note sent to this job's techs (first tech found), else the app's values
+  const firstTechId = assignment.workers.map(w => techIdByName[w.trim().toLowerCase()]).find(Boolean);
+  const { floor, workType } = workDetailsFor(assignment, data?.scheduleEvents, jobId, firstTechId);
 
   const matchesJob = (ts: ReviewTimesheet) => (
     jobId
@@ -104,14 +105,24 @@ const ReviewFeed: React.FC<ReviewFeedProps> = ({
         const otherJobCount = dayEntries.length - jobEntries.length;
         const anyOnClock = dayEntries.some(ts => ts.onTheClock);
 
-        const approved = !!user.approvedTo && user.approvedTo >= date;
-        const submitted = !!user.submittedTo && user.submittedTo >= date;
+        // Prefer QB's per-timesheet state (what QB Time's screens show); fall back to the
+        // user-level approved_to / submitted_to dates for accounts that don't return it.
+        const stateEntries = (jobEntries.length > 0 ? jobEntries : dayEntries).filter(ts => ts.state);
+        const states = stateEntries.map(ts => ts.state);
+        const approved = states.length > 0
+          ? states.every(s => s === 'APPROVED')
+          : !!user.approvedTo && user.approvedTo > date; // approved_to is exclusive
+        const rejected = states.includes('REJECTED');
+        const submitted = states.length > 0
+          ? !rejected && states.every(s => s === 'SUBMITTED' || s === 'APPROVED')
+          : !!user.submittedTo && user.submittedTo > date;
         const approvalPending = actions.pending[`approval:${userId}`];
         const statusPending = actions.pending[`status:${userId}`] === 'status';
         const active = isTechActive(user);
 
         const approveDisabled = !!approvalPending || approved || dayEntries.length === 0 || anyOnClock;
-        const rejectDisabled = !!approvalPending || (!approved && !submitted);
+        // Unapprove only makes sense on an approved day (or while one is in flight)
+        const showUnapprove = approved || approvalPending === 'unapprove';
         const approveTitle = approved
           ? 'Already approved'
           : dayEntries.length === 0
@@ -126,31 +137,34 @@ const ReviewFeed: React.FC<ReviewFeedProps> = ({
               <span className="text-sm font-semibold text-gray-800">{worker}</span>
               <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium ${
                 approved ? 'bg-green-100 text-green-700'
+                  : rejected ? 'bg-red-100 text-red-700'
                   : submitted ? 'bg-blue-100 text-blue-700'
                   : 'bg-gray-100 text-gray-600'
               }`}>
-                {approved ? 'Approved' : submitted ? 'Submitted' : 'Not submitted'}
+                {approved ? 'Approved' : rejected ? 'Rejected' : submitted ? 'Submitted' : 'Not submitted'}
               </span>
 
               <div className="ml-auto flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => void actions.setApproval(user, date, 'approve')}
+                  onClick={async () => { if (await actions.setApproval(user, date, 'approve')) onRefresh(); }}
                   disabled={approveDisabled}
                   title={approveTitle}
                   className="px-2 py-1 text-xs rounded border border-green-600 text-green-700 hover:bg-green-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {approvalPending === 'approve' ? <><Spinner /> Approving</> : approved ? '✓ Approved' : 'Approve'}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void actions.setApproval(user, date, 'reject')}
-                  disabled={rejectDisabled}
-                  title={rejectDisabled && !approvalPending ? 'Nothing submitted to reject' : 'Send this day back to the tech'}
-                  className="px-2 py-1 text-xs rounded border border-red-500 text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {approvalPending === 'reject' ? <><Spinner /> Rejecting</> : 'Reject'}
-                </button>
+                {showUnapprove && (
+                  <button
+                    type="button"
+                    onClick={async () => { if (await actions.setApproval(user, date, 'unapprove')) onRefresh(); }}
+                    disabled={!!approvalPending}
+                    title="Unapprove this day in QuickBooks (it goes back to Submitted)"
+                    className="px-2 py-1 text-xs rounded border border-red-500 text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {approvalPending === 'unapprove' ? <><Spinner /> Unapproving</> : 'Unapprove'}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => void actions.toggleTechStatus(user)}

@@ -71,8 +71,10 @@ export async function updateUser(update: Record<string, unknown>): Promise<void>
   }
 }
 
-export const dayBefore = (date: string) => {
+const shiftDate = (date: string, days: number) => {
   const [y, m, d] = date.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d - 1));
-  return dt.toISOString().slice(0, 10);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 };
+
+export const dayBefore = (date: string) => shiftDate(date, -1);
+export const dayAfter = (date: string) => shiftDate(date, 1);

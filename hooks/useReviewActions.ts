@@ -2,15 +2,18 @@
 
 import { useCallback, useState } from 'react';
 import { isTechActive, ReviewUser } from '@/types/review';
+import { appAlert, appConfirm } from '@/utils/dialog';
 
-export type PendingAction = 'approve' | 'reject' | 'status';
+export type ApprovalAction = 'approve' | 'unapprove';
+export type PendingAction = ApprovalAction | 'status';
 
 export interface ReviewActions {
   /** Latest QB-confirmed user state from actions taken this session (shared by all day cards). */
   overrides: Record<string, ReviewUser>;
   /** Keys: `approval:<userId>` and `status:<userId>` */
   pending: Record<string, PendingAction>;
-  setApproval: (user: ReviewUser, date: string, action: 'approve' | 'reject') => Promise<void>;
+  /** Resolves true when a request was sent to QB (so callers can re-read timesheet states). */
+  setApproval: (user: ReviewUser, date: string, action: ApprovalAction) => Promise<boolean>;
   toggleTechStatus: (user: ReviewUser) => Promise<void>;
 }
 
@@ -19,10 +22,12 @@ const fmtDate = (d: string) => {
   return new Date(y, m - 1, day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 };
 
-const dayBefore = (date: string) => {
+const shiftDate = (date: string, days: number) => {
   const [y, m, d] = date.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 };
+const dayBefore = (date: string) => shiftDate(date, -1);
+const dayAfter = (date: string) => shiftDate(date, 1);
 
 export const useReviewActions = (): ReviewActions => {
   const [overrides, setOverrides] = useState<Record<string, ReviewUser>>({});
@@ -37,20 +42,28 @@ export const useReviewActions = (): ReviewActions => {
       return next;
     });
 
-  const setApproval = useCallback(async (user: ReviewUser, date: string, action: 'approve' | 'reject') => {
+  const setApproval = useCallback(async (user: ReviewUser, date: string, action: ApprovalAction) => {
     const key = `approval:${user.id}`;
 
     // QB approves per tech *up to a date* — spell out side effects before acting.
-    if (action === 'approve' && user.approvedTo && user.approvedTo < dayBefore(date)) {
-      if (!window.confirm(
-        `QuickBooks approves time up to a date.\n\nApproving ${user.name} for ${fmtDate(date)} will also approve any of their unapproved time after ${fmtDate(user.approvedTo)}.\n\nContinue?`
-      )) return;
+    // user.approvedTo is exclusive: days before it are approved, that day itself is not.
+    if (action === 'approve' && (!user.approvedTo || user.approvedTo < date)) {
+      const earlier = user.approvedTo
+        ? (user.approvedTo === dayBefore(date)
+          ? `their unapproved time on ${fmtDate(user.approvedTo)}`
+          : `any of their unapproved time from ${fmtDate(user.approvedTo)} to ${fmtDate(dayBefore(date))}`)
+        : 'all of their earlier unapproved time';
+      if (!(await appConfirm(
+        `QuickBooks approves time up to a date.\n\nApproving ${user.name} for ${fmtDate(date)} will also approve ${earlier}.\n\nContinue?`,
+        { title: 'Approve time', confirmLabel: 'Approve' }
+      ))) return false;
     }
-    if (action === 'reject') {
-      const alsoLater = user.approvedTo && user.approvedTo > date;
-      if (!window.confirm(
-        `Reject ${user.name}'s time for ${fmtDate(date)}?\n\nThis un-approves and un-submits that day${alsoLater ? ` and every later day through ${fmtDate(user.approvedTo)}` : ''}, sending it back to the tech.`
-      )) return;
+    if (action === 'unapprove') {
+      const alsoLater = !!user.approvedTo && user.approvedTo > dayAfter(date);
+      if (!(await appConfirm(
+        `Unapprove ${user.name}'s time for ${fmtDate(date)}?\n\nThat day${alsoLater ? ` and every later approved day through ${fmtDate(dayBefore(user.approvedTo))}` : ''} goes back to Submitted in QuickBooks.`,
+        { title: 'Unapprove time', confirmLabel: 'Unapprove', danger: true }
+      ))) return false;
     }
 
     startPending(key, action);
@@ -62,12 +75,13 @@ export const useReviewActions = (): ReviewActions => {
       });
       const data = await res.json();
       if (data.user) setOverrides(prev => ({ ...prev, [user.id]: data.user }));
-      if (!res.ok) alert(data.error || `Failed to ${action} time entry`);
+      if (!res.ok) void appAlert(data.error || `Failed to ${action} time entry`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : `Failed to ${action} time entry`);
+      void appAlert(err instanceof Error ? err.message : `Failed to ${action} time entry`);
     } finally {
       endPending(key);
     }
+    return true;
   }, []);
 
   const toggleTechStatus = useCallback(async (user: ReviewUser) => {
@@ -82,9 +96,9 @@ export const useReviewActions = (): ReviewActions => {
       });
       const data = await res.json();
       if (data.user) setOverrides(prev => ({ ...prev, [user.id]: data.user }));
-      if (!res.ok) alert(data.error || `Failed to ${enable ? 'activate' : 'deactivate'} ${user.name}`);
+      if (!res.ok) void appAlert(data.error || `Failed to ${enable ? 'activate' : 'deactivate'} ${user.name}`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : `Failed to ${enable ? 'activate' : 'deactivate'} ${user.name}`);
+      void appAlert(err instanceof Error ? err.message : `Failed to ${enable ? 'activate' : 'deactivate'} ${user.name}`);
     } finally {
       endPending(key);
     }

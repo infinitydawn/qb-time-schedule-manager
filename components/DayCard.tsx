@@ -6,6 +6,7 @@ import { AppMode, JobRef, ReviewDayData, TechRef } from '@/types/review';
 import { ReviewActions } from '@/hooks/useReviewActions';
 import WorkTypeSelect from '@/components/WorkTypeSelect';
 import ReviewFeed from '@/components/ReviewFeed';
+import { appAlert, appConfirm } from '@/utils/dialog';
 
 const firstName = (name: string) => name.split(' ')[0];
 
@@ -330,7 +331,7 @@ const DayCard: React.FC<DayCardProps> = ({
   };
 
   // Toggle worker in a job row
-  const toggleWorker = (pmId: string, jobId: string, currentWorkers: string[], worker: string) => {
+  const toggleWorker = async (pmId: string, jobId: string, currentWorkers: string[], worker: string) => {
     // Removing — always allow
     if (currentWorkers.includes(worker)) {
       updateJobRow(pmId, jobId, 'workers', currentWorkers.filter(w => w !== worker));
@@ -350,9 +351,10 @@ const DayCard: React.FC<DayCardProps> = ({
       })
     );
 
-    if (conflictingJobs.length > 0 && !window.confirm(
-      `${worker} is already assigned to:\n${conflictingJobs.map(j => `  • ${j}`).join('\n')}\n\nAssign to this job as well?`
-    )) {
+    if (conflictingJobs.length > 0 && !(await appConfirm(
+      `${worker} is already assigned to:\n${conflictingJobs.map(j => `  • ${j}`).join('\n')}\n\nAssign to this job as well?`,
+      { title: 'Tech already assigned', confirmLabel: 'Assign anyway' }
+    ))) {
       return;
     }
 
@@ -485,7 +487,7 @@ const DayCard: React.FC<DayCardProps> = ({
               onAddJob={() => addJobRow(pm.id)}
               onToggleWorker={(jobId, worker) => {
                 const a = pm.assignments.find(a => a.id === jobId);
-                if (a) toggleWorker(pm.id, jobId, a.workers, worker);
+                if (a) void toggleWorker(pm.id, jobId, a.workers, worker);
               }}
               onChangeJob={(jobId, job) => updateJobRow(pm.id, jobId, 'job', job)}
               onChangeTime={(jobId, field, time) => updateJobRow(pm.id, jobId, field, time)}
@@ -720,7 +722,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
       if (cancelled) return;
       setRefreshingJobs(false);
       if (!ok) {
-        window.alert('Unable to refresh QuickBooks addresses right now. Showing the last loaded list.');
+        void appAlert('Unable to refresh QuickBooks addresses right now. Showing the last loaded list.');
       }
     })();
 

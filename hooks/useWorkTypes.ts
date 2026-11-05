@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { appAlert } from '@/utils/dialog';
 
 /** Resolves to the catalogue names, or null if the DB is unavailable. */
 async function fetchWorkTypeNames(): Promise<string[] | null> {
@@ -43,7 +44,7 @@ export const useWorkTypes = () => {
       });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.error || 'Failed to add work type');
+        void appAlert(data.error || 'Failed to add work type');
         return null;
       }
       const stored: string = data.workType?.name || clean;
@@ -54,7 +55,7 @@ export const useWorkTypes = () => {
       ));
       return stored;
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to add work type');
+      void appAlert(err instanceof Error ? err.message : 'Failed to add work type');
       return null;
     }
   }, []);

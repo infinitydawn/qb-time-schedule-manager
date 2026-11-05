@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getQBHeaders, TSHEETS_BASE } from '@/utils/qbtoken';
 import { fetchUsersByIds } from '@/utils/qbUsers';
-import { ReviewDayData, ReviewTimesheet } from '@/types/review';
+import { ReviewDayData, ReviewScheduleEvent, ReviewTimesheet } from '@/types/review';
+import { fetchScheduleEventsForDate } from '@/utils/qbScheduleEvents';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -17,7 +18,7 @@ export async function POST(req: NextRequest) {
     }
     const ids = [...new Set((userIds || []).map(String).filter(Boolean))];
     if (ids.length === 0) {
-      return NextResponse.json({ date, timesheets: [], users: {} } satisfies ReviewDayData);
+      return NextResponse.json({ date, timesheets: [], users: {}, scheduleEvents: [] } satisfies ReviewDayData);
     }
 
     const headers = getQBHeaders();
@@ -60,6 +61,8 @@ export async function POST(req: NextRequest) {
             start: ts.start || '',
             end: ts.end || '',
             onTheClock: !!ts.on_the_clock,
+            // Undocumented per-timesheet approval state (e.g. SUBMITTED / APPROVED); read-only via API
+            state: typeof ts.state === 'string' ? ts.state.toUpperCase() : '',
             duration: Number(ts.duration) || 0,
             notes: ts.notes || '',
           });
@@ -73,7 +76,17 @@ export async function POST(req: NextRequest) {
     timesheets.sort((a, b) => (a.start || '').localeCompare(b.start || ''));
 
     const users = await fetchUsersByIds(ids);
-    return NextResponse.json({ date, timesheets, users } satisfies ReviewDayData);
+
+    // Schedule notes (Floor / Work Type) come from QB's schedule events; don't fail the
+    // whole review if they can't be loaded.
+    let scheduleEvents: ReviewScheduleEvent[] | undefined;
+    try {
+      scheduleEvents = await fetchScheduleEventsForDate(date);
+    } catch (err) {
+      console.error('[review] schedule events failed', err);
+    }
+
+    return NextResponse.json({ date, timesheets, users, scheduleEvents } satisfies ReviewDayData);
   } catch (err: unknown) {
     console.error('QB Time Review API error:', err);
     return NextResponse.json(
