@@ -4,6 +4,11 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import DayCard from '@/components/DayCard';
 import QBTimeManager from '@/components/QBTimeManager';
 import { useQBTime } from '@/hooks/useQBTime';
+import { useWorkTypes } from '@/hooks/useWorkTypes';
+import { useReviewActions } from '@/hooks/useReviewActions';
+import { AppMode, ReviewDayData } from '@/types/review';
+import { buildTimeReviewText } from '@/utils/timeReviewExport';
+import { appAlert, appConfirm } from '@/utils/dialog';
 import { useScheduleStorage } from '@/utils/storage';
 import { DailySchedule } from '@/types/schedule';
 import { getScheduleFingerprintInput, schedulesHaveSameQBContent } from '@/utils/scheduleFingerprint';
@@ -75,6 +80,20 @@ export default function Home() {
   const [showTimeInSummary, setShowTimeInSummary] = useState(false);
   const [dbStatus, setDbStatus] = useState<'loading' | 'ok' | 'error'>('loading');
   const [importingFromQB, setImportingFromQB] = useState(false);
+  const [mode, setMode] = useState<AppMode>('schedule');
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [exportingReview, setExportingReview] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close the export menu on outside click
+  useEffect(() => {
+    if (!showExportMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) setShowExportMenu(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showExportMenu]);
 
   // Default filter: last 7 days through next 7 days
   const today = new Date();
@@ -100,6 +119,14 @@ export default function Home() {
   ]));
   const techNames = technicians.map(t => t.name);
   const jobNames = jobs.map(j => j.name);
+
+  const { workTypes, addWorkType, reloadWorkTypes } = useWorkTypes();
+  const reviewActions = useReviewActions();
+  // Include work types already used on schedules (covers DB-offline / localStorage cases)
+  const workTypeNames = Array.from(new Set([
+    ...workTypes,
+    ...schedules.flatMap(s => s.projectManagers.flatMap(pm => pm.assignments.map(a => a.workType || ''))),
+  ].filter(Boolean))).sort((a, b) => a.localeCompare(b));
   const { loadSchedules, saveSchedules } = useScheduleStorage();
 
   // Ref to skip the first save triggered by loading
@@ -153,8 +180,9 @@ export default function Home() {
         const extrasCount = Math.max(0, loaded.length - 10);
         const toDelete = sortedAsc.slice(0, extrasCount);
         const deleteCount = toDelete.length;
-        const confirmed = window.confirm(
-          `There are ${loaded.length} schedule entries. ${deleteCount} old entr${deleteCount === 1 ? 'y' : 'ies'} will be deleted to keep only the 10 newest.\n\nProceed?`
+        const confirmed = await appConfirm(
+          `There are ${loaded.length} schedule entries. ${deleteCount} old entr${deleteCount === 1 ? 'y' : 'ies'} will be deleted to keep only the 10 newest.\n\nProceed?`,
+          { title: 'Delete old schedules?', confirmLabel: 'Delete old entries', cancelLabel: 'Keep all', danger: true }
         );
         if (confirmed) {
           const deleteIds = new Set(toDelete.map(s => s.id));
@@ -264,7 +292,7 @@ export default function Home() {
     });
 
     if (rejectedDuplicateDate) {
-      alert('That date already exists. Edit the existing day instead of creating a duplicate.');
+      void appAlert('That date already exists. Edit the existing day instead of creating a duplicate.');
       return;
     }
 
@@ -336,23 +364,24 @@ export default function Home() {
     const importEnd = qbImportTo;
 
     if (!isConnected) {
-      alert('Please connect to QuickBooks Time first');
+      void appAlert('Please connect to QuickBooks Time first');
       setShowQBManager(true);
       return;
     }
 
     if (!importStart || !importEnd) {
-      alert('Enter both a start date and an end date.');
+      void appAlert('Enter both a start date and an end date.');
       return;
     }
 
     if (importStart > importEnd) {
-      alert('Start date must be before or equal to end date.');
+      void appAlert('Start date must be before or equal to end date.');
       return;
     }
 
-    const confirmed = window.confirm(
-      `Import QuickBooks schedules from ${importStart} through ${importEnd}?\n\nThis will replace any existing days in that date range only. Days outside the range will stay untouched, and dates in the range with no QuickBooks schedule will be removed.`
+    const confirmed = await appConfirm(
+      `Import QuickBooks schedules from ${importStart} through ${importEnd}?\n\nThis will replace any existing days in that date range only. Days outside the range will stay untouched, and dates in the range with no QuickBooks schedule will be removed.`,
+      { title: 'Pull from QuickBooks', confirmLabel: 'Pull from QB' }
     );
     if (!confirmed) return;
 
@@ -367,7 +396,7 @@ export default function Home() {
       const data = await res.json();
 
       if (!res.ok) {
-        alert(data.error || 'Failed to import from QuickBooks.');
+        void appAlert(data.error || 'Failed to import from QuickBooks.');
         return;
       }
 
@@ -386,23 +415,24 @@ export default function Home() {
         return merged;
       });
       setDbStatus('ok');
+      void reloadWorkTypes(); // import may have added work types parsed from QB notes
       const importedDays = data.importedDays ?? imported.length;
       const replacedDays = data.deletedSchedules ?? 0;
       const importedEvents = data.importedEvents ?? 0;
 
       if (importedDays === 0) {
-        alert(
+        void appAlert(
           replacedDays > 0
             ? `No QuickBooks schedule days were found from ${importStart} through ${importEnd}. ${replacedDays} existing day(s) in that range were removed.`
             : `No QuickBooks schedule days were found from ${importStart} through ${importEnd}.`
         );
       } else {
-        alert(
+        void appAlert(
           `Imported ${importedDays} QuickBooks schedule day(s) from ${importedEvents} event(s). ${replacedDays} existing day(s) in the selected range were replaced.`
         );
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to import from QuickBooks.');
+      void appAlert(err instanceof Error ? err.message : 'Failed to import from QuickBooks.');
     } finally {
       setImportingFromQB(false);
     }
@@ -413,14 +443,14 @@ export default function Home() {
     if (sendingScheduleIds[schedule.id]) return;
 
     if (!isConnected) {
-      alert('Please connect to QuickBooks Time first');
+      void appAlert('Please connect to QuickBooks Time first');
       setShowQBManager(true);
       return;
     }
 
     // Don't allow re-send unless the card has been changed (it's unlocked)
     if (schedule.sentToQB) {
-      alert('This schedule has already been sent and has not changed. Make an edit to send an update.');
+      void appAlert('This schedule has already been sent and has not changed. Make an edit to send an update.');
       return;
     }
 
@@ -431,15 +461,15 @@ export default function Home() {
         // Mark as sent
         setSchedules(prev => prev.map(s => s.id === schedule.id ? { ...s, sentToQB: true } : s));
         if (result.unchanged) {
-          alert('This schedule has already been sent and has not changed.');
+          void appAlert('This schedule has already been sent and has not changed.');
           return;
         }
-        alert(`✓ ${result.created} created, ${result.updated || 0} updated for ${schedule.dayName || 'this day'}!`);
+        void appAlert(`✓ ${result.created} created, ${result.updated || 0} updated for ${schedule.dayName || 'this day'}!`);
       } else if (result.success && result.failed > 0) {
         setSchedules(prev => prev.map(s => s.id === schedule.id ? { ...s, sentToQB: true } : s));
-        alert(`Partial success: ${result.created} created, ${result.updated || 0} updated, ${result.failed} failed.\n\nErrors:\n${JSON.stringify(result.errors, null, 2) || 'Unknown errors'}`);
+        void appAlert(`Partial success: ${result.created} created, ${result.updated || 0} updated, ${result.failed} failed.\n\nErrors:\n${JSON.stringify(result.errors, null, 2) || 'Unknown errors'}`);
       } else {
-        alert('Failed to send schedule. Please check your data and try again.');
+        void appAlert('Failed to send schedule. Please check your data and try again.');
       }
     } finally {
       setSendingScheduleIds(prev => {
@@ -471,10 +501,20 @@ export default function Home() {
     ), 0
   );
 
+  const downloadText = (text: string, filename: string) => {
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // Export entire schedule to TXT (respects date filter)
   const exportSchedule = () => {
     if (filteredSchedules.length === 0) {
-      alert('Nothing to export – no days match the current filter.');
+      void appAlert('Nothing to export – no days match the current filter.');
       return;
     }
 
@@ -523,15 +563,55 @@ export default function Home() {
     });
 
     const text = sections.join('\r\n\r\n\r\n');
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
     const first = sorted[0]?.date || 'undated';
     const last = sorted[sorted.length - 1]?.date || 'undated';
-    a.href = url;
-    a.download = `schedule-${first}-to-${last}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadText(text, `schedule-${first}-to-${last}.txt`);
+  };
+
+  // Export techs' QB time entries (floor / work type, note, hours) per site (respects date filter)
+  const exportTimeReview = async () => {
+    const days = filteredSchedules
+      .filter(s => s.date)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    if (days.length === 0) {
+      void appAlert('Nothing to export – no dated days match the current filter.');
+      return;
+    }
+    if (!isConnected) {
+      void appAlert('Please connect to QuickBooks Time first');
+      return;
+    }
+
+    const techIdByName: Record<string, string> = {};
+    technicians.forEach(t => { techIdByName[t.name.trim().toLowerCase()] = t.id; });
+    const jobIdByName: Record<string, string> = {};
+    jobs.forEach(j => { jobIdByName[j.name.trim().toLowerCase()] = j.id; });
+
+    setExportingReview(true);
+    try {
+      const reviews: Record<string, ReviewDayData | { error: string }> = {};
+      for (const day of days) {
+        const userIds = [...new Set(day.projectManagers.flatMap(pm => pm.assignments.flatMap(a =>
+          a.workers.map(w => techIdByName[w.trim().toLowerCase()]).filter(Boolean)
+        )))];
+        try {
+          const res = await fetch('/api/qbtime/review', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: day.date, userIds }),
+          });
+          const data = await res.json();
+          reviews[day.date] = res.ok ? data : { error: data.error || `HTTP ${res.status}` };
+        } catch (err) {
+          reviews[day.date] = { error: err instanceof Error ? err.message : 'request failed' };
+        }
+      }
+
+      const text = buildTimeReviewText(days, reviews, { techIdByName, jobIdByName });
+      downloadText(text, `time-review-${days[0].date}-to-${days[days.length - 1].date}.txt`);
+    } finally {
+      setExportingReview(false);
+    }
   };
 
   return (
@@ -545,7 +625,24 @@ export default function Home() {
               <h1 className="text-xl sm:text-3xl font-bold text-gray-800 truncate">Work Schedule Manager</h1>
               <p className="text-gray-600 text-xs sm:text-base mt-0.5 sm:mt-1 hidden sm:block">Manage daily work schedules &amp; sync with QuickBooks Time</p>
             </div>
-            <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 flex-wrap">
+              <div role="group" aria-label="Mode" className="inline-flex rounded-md border border-gray-300 overflow-hidden text-xs sm:text-sm">
+                {(['schedule', 'review'] as const).map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    aria-pressed={mode === m}
+                    onClick={() => setMode(m)}
+                    className={`px-3 py-1.5 sm:py-2 font-medium transition-colors ${
+                      mode === m
+                        ? (m === 'review' ? 'bg-amber-500 text-white' : 'bg-blue-600 text-white')
+                        : 'bg-white text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {m === 'schedule' ? 'Schedule' : 'Time review'}
+                  </button>
+                ))}
+              </div>
               <button
                 onClick={() => setShowQBManager(true)}
                 className={`px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md transition-colors ${
@@ -581,12 +678,40 @@ export default function Home() {
               <span className="text-lg sm:text-2xl font-bold mr-1 sm:mr-2">{filteredWorkers}</span>
               <span className="text-green-100 text-xs sm:text-sm">Workers</span>
             </div>
-              <button
-                onClick={exportSchedule}
-                className="bg-gradient-to-r from-purple-500 to-purple-600 text-white px-3 sm:px-5 py-2 sm:py-3 rounded-lg hover:from-purple-600 hover:to-purple-700 transition-colors font-semibold text-xs sm:text-sm"
-              >
-                Export
-              </button>
+              <div ref={exportMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowExportMenu(v => !v)}
+                  disabled={exportingReview}
+                  aria-haspopup="menu"
+                  aria-expanded={showExportMenu}
+                  className="bg-gradient-to-r from-purple-500 to-purple-600 text-white px-3 sm:px-5 py-2 sm:py-3 rounded-lg hover:from-purple-600 hover:to-purple-700 transition-colors font-semibold text-xs sm:text-sm disabled:opacity-70 disabled:cursor-wait"
+                >
+                  {exportingReview ? 'Exporting…' : 'Export ▾'}
+                </button>
+                {showExportMenu && (
+                  <div role="menu" className="absolute left-0 z-50 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => { setShowExportMenu(false); exportSchedule(); }}
+                      className="w-full text-left px-3 py-2 text-sm text-gray-800 hover:bg-purple-50"
+                    >
+                      <span className="font-semibold">Schedule</span>
+                      <span className="block text-xs text-gray-500">Techs and sites per PM</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => { setShowExportMenu(false); void exportTimeReview(); }}
+                      className="w-full text-left px-3 py-2 text-sm text-gray-800 hover:bg-purple-50 border-t border-gray-100"
+                    >
+                      <span className="font-semibold">Time review</span>
+                      <span className="block text-xs text-gray-500">Floor, work type, tech notes and hours from QB</span>
+                    </button>
+                  </div>
+                )}
+              </div>
               <label className="inline-flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-3 sm:px-4 py-2 sm:py-3 rounded-lg shadow-sm">
                 <input
                   type="checkbox"
@@ -652,6 +777,12 @@ export default function Home() {
 
       {/* Main */}
       <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 space-y-3 sm:space-y-4">
+        {mode === 'review' && (
+          <div className="text-xs sm:text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Time review mode: expand a day to see each tech&apos;s QuickBooks time entries and notes per job.
+            Approvals in QuickBooks are per tech per day (approving a day also approves their earlier unapproved days).
+          </div>
+        )}
         {/* Add Day button */}
         <button
           onClick={addDay}
@@ -689,6 +820,12 @@ export default function Home() {
               techList={techNames}
               jobList={jobNames}
               refreshJobs={fetchJobs}
+              mode={mode}
+              technicians={technicians}
+              jobRefs={jobs}
+              workTypes={workTypeNames}
+              onAddWorkType={addWorkType}
+              reviewActions={reviewActions}
             />
           </div>
         ))}

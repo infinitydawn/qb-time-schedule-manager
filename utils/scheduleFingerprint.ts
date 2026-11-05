@@ -1,4 +1,5 @@
 import { DailySchedule, ProjectManager, WorkerAssignment } from '@/types/schedule';
+import { workNoteHashFields } from '@/utils/workNotes';
 
 const DEFAULT_START_TIME = '08:00';
 const DEFAULT_END_TIME = '16:00';
@@ -25,6 +26,7 @@ export function normalizeScheduleForQB(schedule: DailySchedule) {
             .sort(compareStrings),
           startTime: normalizeTime(assignment.startTime, DEFAULT_START_TIME),
           endTime: normalizeTime(assignment.endTime, DEFAULT_END_TIME),
+          ...workNoteHashFields(assignment.floor, assignment.workType),
         }))
         .filter(assignment => assignment.job || assignment.workers.length > 0)
         .sort((a, b) => (

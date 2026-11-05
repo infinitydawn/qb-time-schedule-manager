@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getQBHeaders, TSHEETS_BASE } from '@/utils/qbtoken';
-import { getPool, initDb } from '@/utils/db';
+import { getPool, initDb, upsertWorkTypes } from '@/utils/db';
+import { parseWorkNotes, workNoteHashFields } from '@/utils/workNotes';
 import { getScheduleFingerprintInput } from '@/utils/scheduleFingerprint';
 import { DailySchedule, WorkerAssignment } from '@/types/schedule';
 import crypto from 'crypto';
@@ -106,6 +107,7 @@ const hashAssignment = (
     workers: [...assignment.workers].sort(),
     startTime: assignment.startTime || DEFAULT_START_TIME,
     endTime: assignment.endTime || DEFAULT_END_TIME,
+    ...workNoteHashFields(assignment.floor, assignment.workType),
   };
 
   return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
@@ -252,6 +254,7 @@ function eventsToSchedules(
       .map(id => userName(usersById[String(id)]))
       .filter(Boolean);
     const pmName = titlePm || 'Imported from QB';
+    const workNotes = parseWorkNotes(event.notes);
 
     let schedule = schedulesByDate.get(date);
     if (!schedule) {
@@ -282,6 +285,8 @@ function eventsToSchedules(
       job,
       startTime: normalizeTime(event.start, DEFAULT_START_TIME),
       endTime: normalizeTime(event.end, DEFAULT_END_TIME),
+      floor: workNotes?.floor || undefined,
+      workType: workNotes?.workType || undefined,
       qbEventId: String(event.id),
     };
 
@@ -298,6 +303,8 @@ function eventsToSchedules(
     const existing = scopeMap.get(assignmentKey);
     if (existing) {
       existing.workers = mergeUniqueWorkers(existing.workers, assignment.workers);
+      existing.floor = existing.floor || assignment.floor;
+      existing.workType = existing.workType || assignment.workType;
       existing.assignmentHash = hashAssignment(date, pm.name, existing);
       continue;
     }
@@ -342,8 +349,8 @@ async function replaceSchedules(startDate: string, endDate: string, schedules: D
         for (let ai = 0; ai < pm.assignments.length; ai++) {
           const assignment = pm.assignments[ai];
           await client.query(
-            `INSERT INTO assignments (id, pm_id, schedule_id, workers, job, start_time, end_time, sort_order, qb_event_id, assignment_hash)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            `INSERT INTO assignments (id, pm_id, schedule_id, workers, job, start_time, end_time, floor, work_type, sort_order, qb_event_id, assignment_hash)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
             [
               assignment.id,
               pm.id,
@@ -352,6 +359,8 @@ async function replaceSchedules(startDate: string, endDate: string, schedules: D
               assignment.job,
               assignment.startTime || DEFAULT_START_TIME,
               assignment.endTime || DEFAULT_END_TIME,
+              assignment.floor || null,
+              assignment.workType || null,
               ai,
               assignment.qbEventId || null,
               assignment.assignmentHash || null,
@@ -360,6 +369,12 @@ async function replaceSchedules(startDate: string, endDate: string, schedules: D
         }
       }
     }
+
+    // Work types found in QB notes are added to the catalogue
+    await upsertWorkTypes(
+      client,
+      schedules.flatMap(s => s.projectManagers.flatMap(pm => pm.assignments.map(a => a.workType)))
+    );
 
     await client.query('COMMIT');
     return {
