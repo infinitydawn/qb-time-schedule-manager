@@ -4,6 +4,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import DayCard from '@/components/DayCard';
 import QBTimeManager from '@/components/QBTimeManager';
 import { useQBTime } from '@/hooks/useQBTime';
+import { useWorkTypes } from '@/hooks/useWorkTypes';
+import { useReviewActions } from '@/hooks/useReviewActions';
+import { AppMode } from '@/types/review';
 import { useScheduleStorage } from '@/utils/storage';
 import { DailySchedule } from '@/types/schedule';
 import { getScheduleFingerprintInput, schedulesHaveSameQBContent } from '@/utils/scheduleFingerprint';
@@ -75,6 +78,7 @@ export default function Home() {
   const [showTimeInSummary, setShowTimeInSummary] = useState(false);
   const [dbStatus, setDbStatus] = useState<'loading' | 'ok' | 'error'>('loading');
   const [importingFromQB, setImportingFromQB] = useState(false);
+  const [mode, setMode] = useState<AppMode>('schedule');
 
   // Default filter: last 7 days through next 7 days
   const today = new Date();
@@ -100,6 +104,14 @@ export default function Home() {
   ]));
   const techNames = technicians.map(t => t.name);
   const jobNames = jobs.map(j => j.name);
+
+  const { workTypes, addWorkType, reloadWorkTypes } = useWorkTypes();
+  const reviewActions = useReviewActions();
+  // Include work types already used on schedules (covers DB-offline / localStorage cases)
+  const workTypeNames = Array.from(new Set([
+    ...workTypes,
+    ...schedules.flatMap(s => s.projectManagers.flatMap(pm => pm.assignments.map(a => a.workType || ''))),
+  ].filter(Boolean))).sort((a, b) => a.localeCompare(b));
   const { loadSchedules, saveSchedules } = useScheduleStorage();
 
   // Ref to skip the first save triggered by loading
@@ -386,6 +398,7 @@ export default function Home() {
         return merged;
       });
       setDbStatus('ok');
+      void reloadWorkTypes(); // import may have added work types parsed from QB notes
       const importedDays = data.importedDays ?? imported.length;
       const replacedDays = data.deletedSchedules ?? 0;
       const importedEvents = data.importedEvents ?? 0;
@@ -545,7 +558,24 @@ export default function Home() {
               <h1 className="text-xl sm:text-3xl font-bold text-gray-800 truncate">Work Schedule Manager</h1>
               <p className="text-gray-600 text-xs sm:text-base mt-0.5 sm:mt-1 hidden sm:block">Manage daily work schedules &amp; sync with QuickBooks Time</p>
             </div>
-            <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 flex-wrap">
+              <div role="group" aria-label="Mode" className="inline-flex rounded-md border border-gray-300 overflow-hidden text-xs sm:text-sm">
+                {(['schedule', 'review'] as const).map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    aria-pressed={mode === m}
+                    onClick={() => setMode(m)}
+                    className={`px-3 py-1.5 sm:py-2 font-medium transition-colors ${
+                      mode === m
+                        ? (m === 'review' ? 'bg-amber-500 text-white' : 'bg-blue-600 text-white')
+                        : 'bg-white text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {m === 'schedule' ? 'Schedule' : 'Time review'}
+                  </button>
+                ))}
+              </div>
               <button
                 onClick={() => setShowQBManager(true)}
                 className={`px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md transition-colors ${
@@ -652,6 +682,12 @@ export default function Home() {
 
       {/* Main */}
       <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 space-y-3 sm:space-y-4">
+        {mode === 'review' && (
+          <div className="text-xs sm:text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Time review mode: expand a day to see each tech&apos;s QuickBooks time entries and notes per job.
+            Approvals in QuickBooks are per tech per day (approving a day also approves their earlier unapproved days).
+          </div>
+        )}
         {/* Add Day button */}
         <button
           onClick={addDay}
@@ -689,6 +725,12 @@ export default function Home() {
               techList={techNames}
               jobList={jobNames}
               refreshJobs={fetchJobs}
+              mode={mode}
+              technicians={technicians}
+              jobRefs={jobs}
+              workTypes={workTypeNames}
+              onAddWorkType={addWorkType}
+              reviewActions={reviewActions}
             />
           </div>
         ))}

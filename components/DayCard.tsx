@@ -1,7 +1,11 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { DailySchedule, ProjectManager, WorkerAssignment } from '@/types/schedule';
+import { AppMode, JobRef, ReviewDayData, TechRef } from '@/types/review';
+import { ReviewActions } from '@/hooks/useReviewActions';
+import WorkTypeSelect from '@/components/WorkTypeSelect';
+import ReviewFeed from '@/components/ReviewFeed';
 
 const firstName = (name: string) => name.split(' ')[0];
 
@@ -58,6 +62,25 @@ const assignmentsOverlap = (a: WorkerAssignment, b: WorkerAssignment) => {
   return aStart < bEnd && bStart < aEnd;
 };
 
+type AssignmentField = 'workers' | 'job' | 'startTime' | 'endTime' | 'floor' | 'workType';
+
+/** Everything the review feed needs; undefined in schedule mode. */
+interface ReviewContext {
+  date: string;
+  data: ReviewDayData | null;
+  loading: boolean;
+  error: string | null;
+  techIdByName: Record<string, string>;
+  jobIdByName: Record<string, string>;
+  actions: ReviewActions;
+  refresh: () => void;
+}
+
+interface WorkTypeProps {
+  workTypes: string[];
+  onAddWorkType: (name: string) => Promise<string | null>;
+}
+
 interface JobRow {
   id: string;
   workers: string[];
@@ -84,6 +107,12 @@ interface DayCardProps {
   pmList?: string[];
   techList?: string[];
   jobList?: string[];
+  mode?: AppMode;
+  technicians?: TechRef[];
+  jobRefs?: JobRef[];
+  workTypes?: string[];
+  onAddWorkType?: (name: string) => Promise<string | null>;
+  reviewActions?: ReviewActions;
 }
 
 const DayCard: React.FC<DayCardProps> = ({
@@ -99,7 +128,13 @@ const DayCard: React.FC<DayCardProps> = ({
   onMovePM,
   pmList,
   techList,
-  jobList
+  jobList,
+  mode = 'schedule',
+  technicians,
+  jobRefs,
+  workTypes = [],
+  onAddWorkType = async () => null,
+  reviewActions,
 }) => {
   const availablePMs = pmList ?? [];
   const availableEmployees = techList ?? [];
@@ -109,6 +144,79 @@ const DayCard: React.FC<DayCardProps> = ({
   const localIdCounter = useRef(0);
 
   const nextLocalId = (prefix: string) => `${prefix}-${++localIdCounter.current}`;
+
+  /* ---- Review mode: load QB time entries for this day's techs ---- */
+  const [reviewData, setReviewData] = useState<ReviewDayData | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewNonce, setReviewNonce] = useState(0);
+
+  const techIdByName = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const t of technicians || []) map[t.name.trim().toLowerCase()] = t.id;
+    return map;
+  }, [technicians]);
+
+  const jobIdByName = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const j of jobRefs || []) map[j.name.trim().toLowerCase()] = j.id;
+    return map;
+  }, [jobRefs]);
+
+  const reviewUserIdsKey = useMemo(() => {
+    const ids = new Set<string>();
+    schedule.projectManagers.forEach(pm => pm.assignments.forEach(a => a.workers.forEach(w => {
+      const id = techIdByName[w.trim().toLowerCase()];
+      if (id) ids.add(id);
+    })));
+    return [...ids].sort().join(',');
+  }, [schedule.projectManagers, techIdByName]);
+
+  const reviewActive = mode === 'review' && !collapsed && !!schedule.date;
+
+  useEffect(() => {
+    if (!reviewActive) return;
+    let cancelled = false;
+    setReviewLoading(true);
+    setReviewError(null);
+    (async () => {
+      try {
+        const res = await fetch('/api/qbtime/review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date: schedule.date, userIds: reviewUserIdsKey ? reviewUserIdsKey.split(',') : [] }),
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) {
+          setReviewError(data.error || 'Failed to load time entries');
+        } else {
+          setReviewData(data);
+        }
+      } catch (err) {
+        if (!cancelled) setReviewError(err instanceof Error ? err.message : 'Failed to load time entries');
+      } finally {
+        if (!cancelled) setReviewLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [reviewActive, schedule.date, reviewUserIdsKey, reviewNonce]);
+
+  const refreshReview = useCallback(() => setReviewNonce(n => n + 1), []);
+
+  const review: ReviewContext | undefined = mode === 'review' && reviewActions
+    ? {
+        date: schedule.date,
+        // Don't show a previous date's entries while a new date loads
+        data: reviewData && reviewData.date === schedule.date ? reviewData : null,
+        loading: reviewLoading,
+        error: reviewError,
+        techIdByName,
+        jobIdByName,
+        actions: reviewActions,
+        refresh: refreshReview,
+      }
+    : undefined;
 
   const parseLocalDate = (dateStr: string) => {
     const [y, m, d] = dateStr.split('-').map(Number);
@@ -193,7 +301,7 @@ const DayCard: React.FC<DayCardProps> = ({
   };
 
   // Update a job row
-  const updateJobRow = (pmId: string, jobId: string, field: 'workers' | 'job' | 'startTime' | 'endTime', value: string[] | string) => {
+  const updateJobRow = (pmId: string, jobId: string, field: AssignmentField, value: string[] | string) => {
     onChange({
       ...schedule,
       projectManagers: schedule.projectManagers.map(pm =>
@@ -381,6 +489,10 @@ const DayCard: React.FC<DayCardProps> = ({
               }}
               onChangeJob={(jobId, job) => updateJobRow(pm.id, jobId, 'job', job)}
               onChangeTime={(jobId, field, time) => updateJobRow(pm.id, jobId, field, time)}
+              onChangeDetail={(jobId, field, value) => updateJobRow(pm.id, jobId, field, value)}
+              workTypes={workTypes}
+              onAddWorkType={onAddWorkType}
+              review={review}
               onRemoveJob={(jobId) => removeJobRow(pm.id, jobId)}
               otherPMsInDay={schedule.projectManagers
                 .filter(p => p.id !== pm.id && p.name)
@@ -407,8 +519,10 @@ const DayCard: React.FC<DayCardProps> = ({
 
 /* ---- Collapsible PM Block ---- */
 
-interface PMBlockProps {
+interface PMBlockProps extends WorkTypeProps {
   pm: ProjectManager;
+  review?: ReviewContext;
+  onChangeDetail: (jobId: string, field: 'floor' | 'workType', value: string) => void;
   disabled?: boolean;
   otherDays?: { id: string; label: string }[];
   availablePMs: string[];
@@ -431,7 +545,7 @@ interface PMBlockProps {
 const PMBlock: React.FC<PMBlockProps> = ({
   pm, disabled = false, otherDays, availablePMs, availableEmployees, availableJobs, showTimeInSummary, refreshJobs,
   onUpdateName, onRemove, onMove, onAddJob, onToggleWorker, onChangeJob, onChangeTime, onRemoveJob,
-  otherPMsInDay, onMoveJobToPM
+  otherPMsInDay, onMoveJobToPM, onChangeDetail, workTypes, onAddWorkType, review
 }) => {
   const [collapsed, setCollapsed] = useState(false);
   const workerCount = pm.assignments.reduce((t, a) => t + a.workers.length, 0);
@@ -516,6 +630,10 @@ const PMBlock: React.FC<PMBlockProps> = ({
               onToggleWorker={(worker) => onToggleWorker(assignment.id, worker)}
               onChangeJob={(job) => onChangeJob(assignment.id, job)}
               onChangeTime={(field, time) => onChangeTime(assignment.id, field, time)}
+              onChangeDetail={(field, value) => onChangeDetail(assignment.id, field, value)}
+              workTypes={workTypes}
+              onAddWorkType={onAddWorkType}
+              review={review}
               onRemove={() => onRemoveJob(assignment.id)}
               onMoveToPM={onMoveJobToPM ? (targetPmId) => onMoveJobToPM(assignment.id, targetPmId) : undefined}
             />
@@ -536,8 +654,10 @@ const PMBlock: React.FC<PMBlockProps> = ({
 
 /* ---- Job Row Editor ---- */
 
-interface JobRowEditorProps {
+interface JobRowEditorProps extends WorkTypeProps {
   assignment: WorkerAssignment;
+  review?: ReviewContext;
+  onChangeDetail: (field: 'floor' | 'workType', value: string) => void;
   disabled?: boolean;
   otherPMs?: { id: string; name: string }[];
   availableEmployees: string[];
@@ -563,7 +683,11 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
   onChangeJob,
   onChangeTime,
   onRemove,
-  onMoveToPM
+  onMoveToPM,
+  onChangeDetail,
+  workTypes,
+  onAddWorkType,
+  review,
 }) => {
   const [showEmployees, setShowEmployees] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -714,6 +838,27 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
             </div>
           </div>
 
+          {/* Floor + work type (saved to QB event notes) */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <input
+              type="text"
+              value={assignment.floor || ''}
+              disabled={disabled}
+              maxLength={100}
+              onChange={e => onChangeDetail('floor', e.target.value.replace(/[\r\n]+/g, ' '))}
+              placeholder="Floor"
+              aria-label="Floor"
+              className="w-full sm:w-32 px-2 py-1.5 text-sm border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+            />
+            <WorkTypeSelect
+              value={assignment.workType || ''}
+              options={workTypes}
+              disabled={disabled}
+              onChange={value => onChangeDetail('workType', value)}
+              onAdd={onAddWorkType}
+            />
+          </div>
+
           {/* Employee checkboxes — shown when toggled */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <button
@@ -793,6 +938,20 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
                 )}
               </div>
             </div>
+          )}
+
+          {review && (
+            <ReviewFeed
+              assignment={assignment}
+              date={review.date}
+              data={review.data}
+              loading={review.loading}
+              error={review.error}
+              techIdByName={review.techIdByName}
+              jobId={review.jobIdByName[assignment.job.trim().toLowerCase()]}
+              actions={review.actions}
+              onRefresh={review.refresh}
+            />
           )}
         </div>
       )}

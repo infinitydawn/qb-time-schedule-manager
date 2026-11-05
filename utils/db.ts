@@ -111,4 +111,48 @@ export async function initDb(): Promise<void> {
     EXCEPTION WHEN duplicate_column THEN NULL;
     END $$;
   `);
+
+  // Floor + work type selected for each assignment (also mirrored into QB event notes)
+  await db.query(`
+    DO $$ BEGIN
+      ALTER TABLE assignments ADD COLUMN floor TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL;
+    END $$;
+  `);
+
+  await db.query(`
+    DO $$ BEGIN
+      ALTER TABLE assignments ADD COLUMN work_type TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL;
+    END $$;
+  `);
+
+  // Work types catalogue (case-insensitive unique names)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS work_types (
+      id          SERIAL PRIMARY KEY,
+      name        TEXT NOT NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_work_types_name ON work_types (LOWER(name));`);
+}
+
+interface Queryable {
+  query: (text: string, values?: unknown[]) => Promise<unknown>;
+}
+
+/** Insert any work type names that aren't in the catalogue yet (case-insensitive). */
+export async function upsertWorkTypes(db: Queryable, names: Array<string | undefined | null>): Promise<void> {
+  const unique = new Map<string, string>();
+  for (const raw of names) {
+    const name = (raw || '').trim();
+    if (name && !unique.has(name.toLowerCase())) unique.set(name.toLowerCase(), name);
+  }
+  for (const name of unique.values()) {
+    await db.query(
+      `INSERT INTO work_types (name) VALUES ($1) ON CONFLICT ((LOWER(name))) DO NOTHING`,
+      [name]
+    );
+  }
 }

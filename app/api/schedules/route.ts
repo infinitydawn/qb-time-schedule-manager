@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPool, initDb } from '@/utils/db';
+import { getPool, initDb, upsertWorkTypes } from '@/utils/db';
 import { DailySchedule, ProjectManager, WorkerAssignment } from '@/types/schedule';
 
 let dbReady = false;
@@ -27,7 +27,7 @@ export async function GET() {
     );
 
     const { rows: assignRows } = await db.query(
-      `SELECT id, pm_id, schedule_id, workers, job, start_time, end_time, sort_order, qb_event_id, assignment_hash FROM assignments ORDER BY sort_order`
+      `SELECT id, pm_id, schedule_id, workers, job, start_time, end_time, floor, work_type, sort_order, qb_event_id, assignment_hash FROM assignments ORDER BY sort_order`
     );
 
     // Build lookup maps
@@ -40,6 +40,8 @@ export async function GET() {
         pmId: a.pm_id,
         startTime: a.start_time || undefined,
         endTime: a.end_time || undefined,
+        floor: a.floor || undefined,
+        workType: a.work_type || undefined,
         qbEventId: a.qb_event_id || undefined,
         assignmentHash: a.assignment_hash || undefined,
       };
@@ -86,6 +88,7 @@ export async function PUT(req: NextRequest) {
     const client = await db.connect();
     try {
       await client.query('BEGIN');
+      const usedWorkTypes: string[] = [];
 
       // Upsert schedules, project managers and assignments so we preserve QB metadata
       for (const s of schedules) {
@@ -114,10 +117,11 @@ export async function PUT(req: NextRequest) {
             const startTime = a.startTime || '08:00';
             const endTime = a.endTime || '16:00';
             await client.query(
-              `INSERT INTO assignments (id, pm_id, schedule_id, workers, job, start_time, end_time, sort_order, assignment_hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-               ON CONFLICT (id) DO UPDATE SET workers = EXCLUDED.workers, job = EXCLUDED.job, start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time, sort_order = EXCLUDED.sort_order`,
-              [a.id, pm.id, s.id, a.workers, a.job, startTime, endTime, ai, a.assignmentHash || null]
+              `INSERT INTO assignments (id, pm_id, schedule_id, workers, job, start_time, end_time, floor, work_type, sort_order, assignment_hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+               ON CONFLICT (id) DO UPDATE SET workers = EXCLUDED.workers, job = EXCLUDED.job, start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time, floor = EXCLUDED.floor, work_type = EXCLUDED.work_type, sort_order = EXCLUDED.sort_order`,
+              [a.id, pm.id, s.id, a.workers, a.job, startTime, endTime, a.floor?.trim() || null, a.workType?.trim() || null, ai, a.assignmentHash || null]
             );
+            if (a.workType) usedWorkTypes.push(a.workType);
           }
         }
 
@@ -142,6 +146,9 @@ export async function PUT(req: NextRequest) {
       } else {
         await client.query(`DELETE FROM schedules`);
       }
+
+      // Keep the work type catalogue in sync with anything selected on assignments
+      await upsertWorkTypes(client, usedWorkTypes);
 
       await client.query('COMMIT');
     } catch (txErr) {

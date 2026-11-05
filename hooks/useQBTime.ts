@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { DailySchedule } from '@/types/schedule';
+import { formatWorkNotes, workNoteHashFields } from '@/utils/workNotes';
 
 const DEFAULT_START_TIME = '08:00';
 const DEFAULT_END_TIME = '16:00';
@@ -333,9 +334,12 @@ export const useQBTime = (): UseQBTimeReturn => {
             title = title.substring(0, 61) + '...';
           }
 
-          // Full detail in notes (no length limit)
+          // Notes: "Floor: ..., / Work Type: ..." block (parsed back on import), then full detail
           const techNamesList = assignment.workers.join(', ');
-          const notes = `${pm.name} - ${assignment.job} (${techNamesList})`;
+          const notes = [
+            formatWorkNotes(assignment.floor, assignment.workType),
+            `${pm.name} - ${assignment.job} (${techNamesList})`,
+          ].filter(Boolean).join('\n\n');
 
           // Build start/end for the schedule date. Defaults remain 8am - 4pm Eastern.
           // Determine EST vs EDT: EDT is Mar second Sun – Nov first Sun
@@ -375,6 +379,7 @@ export const useQBTime = (): UseQBTimeReturn => {
             workers: [...assignment.workers].sort(),
             startTime,
             endTime,
+            ...workNoteHashFields(assignment.floor, assignment.workType),
           };
           let assignmentHash = '';
           try {

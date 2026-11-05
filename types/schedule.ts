@@ -5,6 +5,8 @@ export interface WorkerAssignment {
   pmId: string;
   startTime?: string;
   endTime?: string;
+  floor?: string;
+  workType?: string;
   qbEventId?: string;
   assignmentHash?: string;
 }
