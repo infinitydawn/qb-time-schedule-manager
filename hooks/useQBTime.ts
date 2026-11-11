@@ -334,12 +334,9 @@ export const useQBTime = (): UseQBTimeReturn => {
             title = title.substring(0, 61) + '...';
           }
 
-          // Notes: "Floor: ..., / Work Type: ..." block (parsed back on import), then full detail
-          const techNamesList = assignment.workers.join(', ');
-          const notes = [
-            formatWorkNotes(assignment.floor, assignment.workType),
-            `${pm.name} - ${assignment.job} (${techNamesList})`,
-          ].filter(Boolean).join('\n\n');
+          // Notes hold only the "Floor: ..., / Work Type: ..." block (parsed back on import).
+          // PM, address and techs are already in the event's title, location and assigned users.
+          const notes = formatWorkNotes(assignment.floor, assignment.workType);
 
           // Build start/end for the schedule date. Defaults remain 8am - 4pm Eastern.
           // Determine EST vs EDT: EDT is Mar second Sun – Nov first Sun
