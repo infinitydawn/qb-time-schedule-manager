@@ -35,6 +35,10 @@ export async function POST(req: NextRequest) {
     if (!name) {
       return NextResponse.json({ error: 'Work type name is required' }, { status: 400 });
     }
+    if (name.includes(',')) {
+      // A job's work types are stored as a comma-separated list
+      return NextResponse.json({ error: 'Work type names can\'t contain commas' }, { status: 400 });
+    }
     if (name.length > 100) {
       return NextResponse.json({ error: 'Work type name must be 100 characters or fewer' }, { status: 400 });
     }

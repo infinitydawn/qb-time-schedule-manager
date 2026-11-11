@@ -65,7 +65,7 @@ const ReviewFeed: React.FC<ReviewFeedProps> = ({
         <div className="text-xs text-gray-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
           <span className="font-semibold">Schedule notes:</span>{' '}
           {floor || workType ? (
-            <>Floor: {floor || '—'} · Work Type: {workType || '—'}</>
+            <>Floor: {floor || '—'} · Work Type{workType.includes(',') ? 's' : ''}: {workType || '—'}</>
           ) : (
             <span className="text-gray-400">no floor / work type</span>
           )}
