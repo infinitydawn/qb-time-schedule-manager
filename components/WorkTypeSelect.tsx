@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { joinWorkTypes, splitWorkTypes } from '@/utils/workNotes';
 
 interface WorkTypeSelectProps {
+  /** Selected work types as a comma-separated list ("A, B") */
   value: string;
   options: string[];
   disabled?: boolean;
@@ -11,13 +13,18 @@ interface WorkTypeSelectProps {
   onAdd: (name: string) => Promise<string | null>;
 }
 
+/** Searchable multi-select for work types, with + to add new ones. */
 const WorkTypeSelect: React.FC<WorkTypeSelectProps> = ({ value, options, disabled = false, onChange, onAdd }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
+  const [addError, setAddError] = useState('');
   const [saving, setSaving] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  const selected = splitWorkTypes(value);
+  const isSelected = (name: string) => selected.some(s => s.toLowerCase() === name.toLowerCase());
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -32,25 +39,48 @@ const WorkTypeSelect: React.FC<WorkTypeSelectProps> = ({ value, options, disable
     setSearch('');
     setAdding(false);
     setNewName('');
+    setAddError('');
   };
 
-  const filtered = options.filter(o => o.toLowerCase().includes(search.trim().toLowerCase()));
-  const exactMatch = options.some(o => o.toLowerCase() === search.trim().toLowerCase());
+  const toggle = (name: string) => {
+    onChange(joinWorkTypes(
+      isSelected(name)
+        ? selected.filter(s => s.toLowerCase() !== name.toLowerCase())
+        : [...selected, name]
+    ));
+  };
+
+  // Selected types first (in the order picked), then the rest alphabetically
+  const allOptions = [
+    ...selected,
+    ...options.filter(o => !isSelected(o)),
+  ];
+  const query = search.trim().toLowerCase();
+  const filtered = allOptions.filter(o => o.toLowerCase().includes(query));
+  const exactMatch = allOptions.some(o => o.toLowerCase() === query);
 
   const startAdding = (prefill: string) => {
     setAdding(true);
     setNewName(prefill.trim());
+    setAddError('');
   };
 
   const saveNew = async () => {
     const name = newName.trim();
     if (!name || saving) return;
+    if (name.includes(',')) {
+      setAddError('Names can\'t contain commas');
+      return;
+    }
     setSaving(true);
     const stored = await onAdd(name);
     setSaving(false);
     if (stored) {
-      onChange(stored);
-      close();
+      if (!isSelected(stored)) onChange(joinWorkTypes([...selected, stored]));
+      setAdding(false);
+      setNewName('');
+      setSearch('');
+      setAddError('');
     }
   };
 
@@ -60,45 +90,60 @@ const WorkTypeSelect: React.FC<WorkTypeSelectProps> = ({ value, options, disable
         type="button"
         disabled={disabled}
         onClick={() => (open ? close() : setOpen(true))}
-        className="w-full sm:w-48 px-2 py-1.5 text-sm border border-gray-300 rounded bg-white text-left truncate focus:outline-none focus:ring-1 focus:ring-blue-400"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="w-full sm:w-64 min-h-[34px] px-2 py-1 text-sm border border-gray-300 rounded bg-white text-left flex items-center gap-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
       >
-        {value || <span className="text-gray-400">Work type</span>}
-        <span className="float-right text-gray-400 text-xs leading-5">▾</span>
+        <span className="flex-1 flex flex-wrap gap-1 min-w-0">
+          {selected.length === 0 ? (
+            <span className="text-gray-400 py-0.5">Work types</span>
+          ) : (
+            selected.map(name => (
+              <span key={name} className="inline-flex items-center max-w-full px-1.5 py-0.5 text-xs rounded bg-blue-100 text-blue-800 truncate">
+                {name}
+              </span>
+            ))
+          )}
+        </span>
+        <span className="text-gray-400 text-xs flex-shrink-0">▾</span>
       </button>
 
       {open && (
-        <div className="absolute z-50 mt-1 w-full sm:w-64 bg-white border border-gray-300 rounded shadow-lg">
+        <div className="absolute z-50 mt-1 w-full sm:w-72 bg-white border border-gray-300 rounded shadow-lg">
           {adding ? (
-            <div className="flex items-center gap-1 p-2 border-b border-gray-200">
-              <input
-                type="text"
-                autoFocus
-                value={newName}
-                maxLength={100}
-                onChange={e => setNewName(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') { e.preventDefault(); void saveNew(); }
-                  if (e.key === 'Escape') { setAdding(false); }
-                }}
-                placeholder="New work type name"
-                className="flex-1 min-w-0 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
-              />
-              <button
-                type="button"
-                disabled={!newName.trim() || saving}
-                onClick={() => void saveNew()}
-                className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300"
-              >
-                {saving ? '…' : 'Add'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setAdding(false)}
-                className="px-1.5 py-1 text-xs text-gray-500 hover:text-gray-700"
-                aria-label="Cancel adding work type"
-              >
-                ✕
-              </button>
+            <div className="p-2 border-b border-gray-200">
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  autoFocus
+                  value={newName}
+                  maxLength={100}
+                  onChange={e => { setNewName(e.target.value); setAddError(''); }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { e.preventDefault(); void saveNew(); }
+                    if (e.key === 'Escape') { setAdding(false); }
+                  }}
+                  placeholder="New work type name"
+                  className="flex-1 min-w-0 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+                <button
+                  type="button"
+                  disabled={!newName.trim() || saving}
+                  onClick={() => void saveNew()}
+                  className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300"
+                >
+                  {saving ? '…' : 'Add'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdding(false)}
+                  className="px-1.5 py-1 text-xs text-gray-500 hover:text-gray-700"
+                  aria-label="Cancel adding work type"
+                >
+                  ✕
+                </button>
+              </div>
+              {addError && <div className="mt-1 text-xs text-red-600">{addError}</div>}
             </div>
           ) : (
             <div className="flex items-center border-b border-gray-200">
@@ -123,30 +168,30 @@ const WorkTypeSelect: React.FC<WorkTypeSelectProps> = ({ value, options, disable
             </div>
           )}
 
-          <div className="max-h-48 overflow-y-auto">
-            {value && (
-              <button
-                type="button"
-                onClick={() => { onChange(''); close(); }}
-                className="w-full text-left px-3 py-1.5 text-sm text-gray-400 hover:bg-gray-100"
-              >
-                Clear work type
-              </button>
-            )}
+          <div role="listbox" aria-multiselectable="true" className="max-h-56 overflow-y-auto py-1">
             {filtered.map(o => (
-              <button
-                type="button"
+              <label
                 key={o}
-                onClick={() => { onChange(o); close(); }}
-                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 ${value === o ? 'bg-blue-100 font-semibold' : ''}`}
+                role="option"
+                aria-selected={isSelected(o)}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 ${isSelected(o) ? 'font-semibold' : ''}`}
               >
-                {o}
-              </button>
+                <input
+                  type="checkbox"
+                  checked={isSelected(o)}
+                  onChange={() => toggle(o)}
+                  className="h-3.5 w-3.5"
+                />
+                <span className="truncate">{o}</span>
+              </label>
             ))}
-            {filtered.length === 0 && !search.trim() && (
+            {allOptions.length === 0 && !query && (
               <div className="px-3 py-2 text-sm text-gray-400">No work types yet — use + to add one</div>
             )}
-            {search.trim() && !exactMatch && !adding && (
+            {query && filtered.length === 0 && exactMatch === false && !adding && (
+              <div className="px-3 py-1 text-xs text-gray-400">No matches</div>
+            )}
+            {query && !exactMatch && !adding && (
               <button
                 type="button"
                 onClick={() => startAdding(search)}
@@ -155,6 +200,20 @@ const WorkTypeSelect: React.FC<WorkTypeSelectProps> = ({ value, options, disable
                 + Add &ldquo;{search.trim()}&rdquo;
               </button>
             )}
+          </div>
+
+          <div className="flex items-center justify-between px-3 py-1.5 border-t border-gray-200 bg-gray-50 text-xs">
+            <span className="text-gray-500">{selected.length} selected</span>
+            <span className="flex items-center gap-3">
+              {selected.length > 0 && (
+                <button type="button" onClick={() => onChange('')} className="text-gray-500 hover:text-gray-700">
+                  Clear
+                </button>
+              )}
+              <button type="button" onClick={close} className="font-semibold text-blue-600 hover:text-blue-800">
+                Done
+              </button>
+            </span>
           </div>
         </div>
       )}

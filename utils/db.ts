@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import { splitWorkTypes } from '@/utils/workNotes';
 
 let pool: Pool | null = null;
 
@@ -142,12 +143,16 @@ interface Queryable {
   query: (text: string, values?: unknown[]) => Promise<unknown>;
 }
 
-/** Insert any work type names that aren't in the catalogue yet (case-insensitive). */
+/**
+ * Insert any work type names that aren't in the catalogue yet (case-insensitive).
+ * Each value may be a comma-separated list (a job's selected work types).
+ */
 export async function upsertWorkTypes(db: Queryable, names: Array<string | undefined | null>): Promise<void> {
   const unique = new Map<string, string>();
   for (const raw of names) {
-    const name = (raw || '').trim();
-    if (name && !unique.has(name.toLowerCase())) unique.set(name.toLowerCase(), name);
+    for (const name of splitWorkTypes(raw)) {
+      if (!unique.has(name.toLowerCase())) unique.set(name.toLowerCase(), name);
+    }
   }
   for (const name of unique.values()) {
     await db.query(

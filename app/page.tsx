@@ -8,6 +8,7 @@ import { useWorkTypes } from '@/hooks/useWorkTypes';
 import { useReviewActions } from '@/hooks/useReviewActions';
 import { AppMode, ReviewDayData } from '@/types/review';
 import { buildTimeReviewText } from '@/utils/timeReviewExport';
+import { splitWorkTypes } from '@/utils/workNotes';
 import { appAlert, appConfirm } from '@/utils/dialog';
 import { useScheduleStorage } from '@/utils/storage';
 import { DailySchedule } from '@/types/schedule';
@@ -122,11 +123,12 @@ export default function Home() {
 
   const { workTypes, addWorkType, reloadWorkTypes } = useWorkTypes();
   const reviewActions = useReviewActions();
-  // Include work types already used on schedules (covers DB-offline / localStorage cases)
-  const workTypeNames = Array.from(new Set([
+  // Include work types already used on schedules (covers DB-offline / localStorage cases).
+  // A job's workType is a comma-separated list, so split it into individual names.
+  const workTypeNames = splitWorkTypes([
     ...workTypes,
     ...schedules.flatMap(s => s.projectManagers.flatMap(pm => pm.assignments.map(a => a.workType || ''))),
-  ].filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  ].join(',')).sort((a, b) => a.localeCompare(b));
   const { loadSchedules, saveSchedules } = useScheduleStorage();
 
   // Ref to skip the first save triggered by loading
