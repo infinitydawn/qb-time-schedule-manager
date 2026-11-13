@@ -58,6 +58,36 @@ const ReviewFeed: React.FC<ReviewFeedProps> = ({
       : !!ts.jobName && ts.jobName.toLowerCase() === assignment.job.trim().toLowerCase()
   );
 
+  // Which techs have their "other jobs" list expanded, by QB user id
+  const [otherOpen, setOtherOpen] = React.useState<Record<string, boolean>>({});
+  const toggleOther = (userId: string) => setOtherOpen(prev => ({ ...prev, [userId]: !prev[userId] }));
+
+  const otherJobsToggle = (userId: string, count: number, compact: boolean) => (
+    <button
+      type="button"
+      onClick={() => toggleOther(userId)}
+      aria-expanded={!!otherOpen[userId]}
+      className="text-blue-600 hover:text-blue-800 hover:underline font-normal"
+    >
+      {otherOpen[userId] ? '▾' : '▸'}{' '}
+      {compact ? `+${count} on other jobs` : `${count} entr${count === 1 ? 'y' : 'ies'} on other jobs`}
+    </button>
+  );
+
+  const entryBlock = (ts: ReviewTimesheet, showJob: boolean) => (
+    <div key={ts.id} className="space-y-1">
+      <div className="text-xs text-gray-700 font-medium">
+        {showJob && <span className="text-gray-900">{ts.jobName || 'Unknown job'} · </span>}
+        {entryTimeLabel(ts)}
+      </div>
+      <div className={`text-xs whitespace-pre-wrap rounded border px-2 py-1 ${
+        ts.notes ? 'text-gray-800 bg-gray-50 border-gray-200' : 'text-gray-400 bg-gray-50 border-dashed border-gray-200'
+      }`}>
+        {ts.notes || 'No notes'}
+      </div>
+    </div>
+  );
+
   return (
     <div className="mt-1 border-t border-dashed border-gray-300 pt-2 space-y-2">
       {/* Schedule notes */}
@@ -102,7 +132,8 @@ const ReviewFeed: React.FC<ReviewFeedProps> = ({
         };
         const dayEntries = data.timesheets.filter(ts => ts.userId === userId);
         const jobEntries = dayEntries.filter(matchesJob);
-        const otherJobCount = dayEntries.length - jobEntries.length;
+        const otherEntries = dayEntries.filter(ts => !matchesJob(ts));
+        const otherJobCount = otherEntries.length;
         const anyOnClock = dayEntries.some(ts => ts.onTheClock);
 
         // Prefer QB's per-timesheet state (what QB Time's screens show); fall back to the
@@ -183,24 +214,22 @@ const ReviewFeed: React.FC<ReviewFeedProps> = ({
             {jobEntries.length === 0 ? (
               <div className="text-xs text-gray-500">
                 No time entry for this job
-                {otherJobCount > 0 && ` · ${otherJobCount} entr${otherJobCount === 1 ? 'y' : 'ies'} on other jobs`}
+                {otherJobCount > 0 && <> · {otherJobsToggle(userId, otherJobCount, false)}</>}
               </div>
             ) : (
-              jobEntries.map(ts => (
-                <div key={ts.id} className="space-y-1">
-                  <div className="text-xs text-gray-700 font-medium">
-                    {entryTimeLabel(ts)}
-                    {otherJobCount > 0 && jobEntries[0].id === ts.id && (
-                      <span className="text-gray-400 font-normal"> · +{otherJobCount} on other jobs</span>
-                    )}
-                  </div>
-                  <div className={`text-xs whitespace-pre-wrap rounded border px-2 py-1 ${
-                    ts.notes ? 'text-gray-800 bg-gray-50 border-gray-200' : 'text-gray-400 bg-gray-50 border-dashed border-gray-200'
-                  }`}>
-                    {ts.notes || 'No notes'}
-                  </div>
-                </div>
-              ))
+              <>
+                {otherJobCount > 0 && (
+                  <div className="text-xs text-gray-500">{otherJobsToggle(userId, otherJobCount, true)}</div>
+                )}
+                {jobEntries.map(ts => entryBlock(ts, false))}
+              </>
+            )}
+
+            {otherJobCount > 0 && otherOpen[userId] && (
+              <div className="ml-2 pl-2 border-l-2 border-blue-200 space-y-1.5">
+                <div className="text-[11px] uppercase tracking-wide text-gray-400 font-semibold">Other jobs today</div>
+                {otherEntries.map(ts => entryBlock(ts, true))}
+              </div>
             )}
           </div>
         );
