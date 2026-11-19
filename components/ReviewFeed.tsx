@@ -2,8 +2,9 @@
 
 import React from 'react';
 import { WorkerAssignment } from '@/types/schedule';
-import { isTechActive, ReviewDayData, ReviewTimesheet, ReviewUser, workDetailsFor } from '@/types/review';
+import { isTechActive, JobRef, ReviewDayData, ReviewTimesheet, ReviewUser, workDetailsFor } from '@/types/review';
 import { ReviewActions } from '@/hooks/useReviewActions';
+import TimesheetEditor, { newTimesheetDraft } from '@/components/TimesheetEditor';
 
 const Spinner = () => (
   <span
@@ -25,6 +26,20 @@ const formatDuration = (seconds: number) => {
   return `${h}h ${String(m).padStart(2, '0')}m`;
 };
 
+const fmtDay = (d: string) => {
+  const [y, m, day] = d.split('-').map(Number);
+  return new Date(y, m - 1, day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+};
+
+const hhmmOf = (iso: string) => iso.match(/T(\d{2}:\d{2})/)?.[1] || '';
+
+/** "HH:MM" + minutes, capped at 23:59 (entries stay on the same day) */
+const addMinutes = (hhmm: string, minutes: number) => {
+  const [h, m] = hhmm.split(':').map(Number);
+  const total = Math.min(h * 60 + m + minutes, 23 * 60 + 59);
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+};
+
 const entryTimeLabel = (ts: ReviewTimesheet) => {
   if (ts.type === 'manual') return `Manual entry · ${formatDuration(ts.duration)}`;
   const start = clockTime(ts.start) || '—';
@@ -41,13 +56,43 @@ interface ReviewFeedProps {
   techIdByName: Record<string, string>;
   /** QB jobcode id for assignment.job, when known */
   jobId?: string;
+  /** Active QB jobcodes, for the Timesheet Editor's job picker */
+  jobs: JobRef[];
   actions: ReviewActions;
   onRefresh: () => void;
 }
 
 const ReviewFeed: React.FC<ReviewFeedProps> = ({
-  assignment, date, data, loading, error, techIdByName, jobId, actions, onRefresh,
+  assignment, date, data, loading, error, techIdByName, jobId, jobs, actions, onRefresh,
 }) => {
+  const [editing, setEditing] = React.useState<{ ts: ReviewTimesheet; techName: string; blockedReason?: string | null } | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 8000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  const handleSaved = (before: ReviewTimesheet, techName: string, updated: ReviewTimesheet) => {
+    setEditing(null);
+    const who = techName.split(' ')[0];
+    if (!before.id) {
+      setNotice(`Created ${who}'s time entry${updated.date !== date ? ` on ${fmtDay(updated.date)}` : ''}.`);
+      actions.notifyTimesheetsChanged();
+      return;
+    }
+    const movedJob = before.jobcodeId !== updated.jobcodeId;
+    if (updated.date !== before.date) {
+      setNotice(`Saved. ${who}'s entry moved to ${fmtDay(updated.date)}${movedJob ? ` (${updated.jobName || 'another job'})` : ''} — it now shows on that day.`);
+    } else if (movedJob) {
+      setNotice(`Saved. ${who}'s entry is now on ${updated.jobName || 'another job'}.`);
+    } else {
+      setNotice(`Saved ${who}'s time entry.`);
+    }
+    // Reload every open day card — the entry may have left this day or job
+    actions.notifyTimesheetsChanged();
+  };
   // From the QB schedule note sent to this job's techs (first tech found), else the app's values
   const firstTechId = assignment.workers.map(w => techIdByName[w.trim().toLowerCase()]).find(Boolean);
   const { floor, workType } = workDetailsFor(assignment, data?.scheduleEvents, jobId, firstTechId);
@@ -74,11 +119,26 @@ const ReviewFeed: React.FC<ReviewFeedProps> = ({
     </button>
   );
 
-  const entryBlock = (ts: ReviewTimesheet, showJob: boolean) => (
+  const entryBlock = (ts: ReviewTimesheet, showJob: boolean, techName: string) => (
     <div key={ts.id} className="space-y-1">
-      <div className="text-xs text-gray-700 font-medium">
-        {showJob && <span className="text-gray-900">{ts.jobName || 'Unknown job'} · </span>}
-        {entryTimeLabel(ts)}
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-xs text-gray-700 font-medium">
+          {showJob && <span className="text-gray-900">{ts.jobName || 'Unknown job'} · </span>}
+          {entryTimeLabel(ts)}
+        </div>
+        <button
+          type="button"
+          onClick={() => setEditing({ ts, techName })}
+          title={ts.state === 'APPROVED' || ts.state === 'SUBMITTED'
+            ? `${ts.state === 'APPROVED' ? 'Approved' : 'Submitted'} — QuickBooks won't allow edits until the day is reopened`
+            : 'Edit this time entry (times, date, job, notes)'}
+          className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] rounded border border-gray-300 text-gray-600 hover:border-blue-500 hover:text-blue-700 hover:bg-blue-50"
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3" aria-hidden="true">
+            <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+          </svg>
+          Edit
+        </button>
       </div>
       <div className={`text-xs whitespace-pre-wrap rounded border px-2 py-1 ${
         ts.notes ? 'text-gray-800 bg-gray-50 border-gray-200' : 'text-gray-400 bg-gray-50 border-dashed border-gray-200'
@@ -109,6 +169,13 @@ const ReviewFeed: React.FC<ReviewFeedProps> = ({
           {loading ? <><Spinner /> Loading</> : '↻ Refresh'}
         </button>
       </div>
+
+      {notice && (
+        <div role="status" className="flex items-start justify-between gap-2 text-xs text-green-800 bg-green-50 border border-green-200 rounded px-2 py-1">
+          <span>{notice}</span>
+          <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className="text-green-700 hover:text-green-900">×</button>
+        </div>
+      )}
 
       {!date && <div className="text-xs text-gray-500">Set a date on this day to load time entries.</div>}
       {error && (
@@ -150,6 +217,50 @@ const ReviewFeed: React.FC<ReviewFeedProps> = ({
         const approvalPending = actions.pending[`approval:${userId}`];
         const statusPending = actions.pending[`status:${userId}`] === 'status';
         const active = isTechActive(user);
+
+        // QB won't take new time inside a submitted / approved period (both dates are exclusive)
+        const addBlockedReason = user.approvedTo > date
+          ? `${worker}'s time is approved through this day in QuickBooks, so it won't accept a new entry. Unapprove and un-submit the day first.`
+          : user.submittedTo > date
+            ? `${worker}'s time is submitted through this day in QuickBooks, so it won't accept a new entry. The day has to be rejected / un-submitted first.`
+            : null;
+
+        // New entry: scheduled hours, or — when the tech already has time today — starting
+        // where their last entry ended (any job), so a second block doesn't overlap.
+        const lastEnd = dayEntries
+          .filter(ts => !ts.onTheClock && ts.end.slice(0, 10) === date)
+          .map(ts => hhmmOf(ts.end))
+          .sort()
+          .pop();
+        const draftStart = lastEnd || assignment.startTime || '08:00';
+        const scheduledEnd = assignment.endTime || '16:00';
+        const draftEnd = lastEnd
+          ? (scheduledEnd > addMinutes(lastEnd, 59) ? scheduledEnd : addMinutes(lastEnd, 60))
+          : scheduledEnd;
+
+        const addButton = (
+          <button
+            type="button"
+            onClick={() => setEditing({
+              techName: worker,
+              ts: newTimesheetDraft({
+                userId,
+                date,
+                jobcodeId: jobId,
+                jobName: jobs.find(j => j.id === jobId)?.name || '',
+                startTime: draftStart,
+                endTime: draftEnd,
+                // Same Service Item / Maintenance as the tech's other time that day, if any
+                customfields: dayEntries[dayEntries.length - 1]?.customfields,
+              }),
+              blockedReason: addBlockedReason,
+            })}
+            title={addBlockedReason || `Create ${jobEntries.length > 0 ? 'another' : 'a'} time entry for ${worker} on this job`}
+            className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] rounded border border-blue-300 text-blue-700 hover:bg-blue-50"
+          >
+            + Add entry
+          </button>
+        );
 
         const approveDisabled = !!approvalPending || approved || dayEntries.length === 0 || anyOnClock;
         // Unapprove only makes sense on an approved day (or while one is in flight)
@@ -212,28 +323,41 @@ const ReviewFeed: React.FC<ReviewFeedProps> = ({
             </div>
 
             {jobEntries.length === 0 ? (
-              <div className="text-xs text-gray-500">
-                No time entry for this job
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-gray-500">
+                <span>No time entry for this job</span>
                 {otherJobCount > 0 && <> · {otherJobsToggle(userId, otherJobCount, false)}</>}
+                {addButton}
               </div>
             ) : (
               <>
-                {otherJobCount > 0 && (
-                  <div className="text-xs text-gray-500">{otherJobsToggle(userId, otherJobCount, true)}</div>
-                )}
-                {jobEntries.map(ts => entryBlock(ts, false))}
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-gray-500">
+                  {otherJobCount > 0 && otherJobsToggle(userId, otherJobCount, true)}
+                  {addButton}
+                </div>
+                {jobEntries.map(ts => entryBlock(ts, false, worker))}
               </>
             )}
 
             {otherJobCount > 0 && otherOpen[userId] && (
               <div className="ml-2 pl-2 border-l-2 border-blue-200 space-y-1.5">
                 <div className="text-[11px] uppercase tracking-wide text-gray-400 font-semibold">Other jobs today</div>
-                {otherEntries.map(ts => entryBlock(ts, true))}
+                {otherEntries.map(ts => entryBlock(ts, true, worker))}
               </div>
             )}
           </div>
         );
       })}
+
+      {editing && (
+        <TimesheetEditor
+          timesheet={editing.ts}
+          blockedReason={editing.blockedReason}
+          techName={editing.techName}
+          jobs={jobs}
+          onClose={() => setEditing(null)}
+          onSaved={updated => handleSaved(editing.ts, editing.techName, updated)}
+        />
+      )}
     </div>
   );
 };

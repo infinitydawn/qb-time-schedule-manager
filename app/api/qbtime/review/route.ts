@@ -3,6 +3,7 @@ import { getQBHeaders, TSHEETS_BASE } from '@/utils/qbtoken';
 import { fetchUsersByIds } from '@/utils/qbUsers';
 import { ReviewDayData, ReviewScheduleEvent, ReviewTimesheet } from '@/types/review';
 import { fetchScheduleEventsForDate } from '@/utils/qbScheduleEvents';
+import { jobcodeNamesFrom, mapTimesheet } from '@/utils/qbTimesheets';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -47,25 +48,9 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        for (const j of Object.values(data.supplemental_data?.jobcodes || {}) as any[]) {
-          jobcodeNames[String(j.id)] = j.name;
-        }
+        jobcodeNamesFrom(data, jobcodeNames);
         for (const ts of Object.values(data.results?.timesheets || {}) as any[]) {
-          timesheets.push({
-            id: String(ts.id),
-            userId: String(ts.user_id),
-            jobcodeId: String(ts.jobcode_id ?? ''),
-            jobName: '',
-            date: ts.date,
-            type: ts.type,
-            start: ts.start || '',
-            end: ts.end || '',
-            onTheClock: !!ts.on_the_clock,
-            // Undocumented per-timesheet approval state (e.g. SUBMITTED / APPROVED); read-only via API
-            state: typeof ts.state === 'string' ? ts.state.toUpperCase() : '',
-            duration: Number(ts.duration) || 0,
-            notes: ts.notes || '',
-          });
+          timesheets.push(mapTimesheet(ts));
         }
         more = !!data.more;
         page++;

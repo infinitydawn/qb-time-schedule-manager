@@ -21,6 +21,7 @@ export async function POST() {
       id: String(f.id),
       name: f.name,
       required: f.required || false,
+      active: f.active !== false,
       type: f.ui_preference, // "drop_down", "text", etc
       appliesToJobcodes: f.applies_to || 'both',
     }));
@@ -29,7 +30,7 @@ export async function POST() {
     const fieldsWithItems = await Promise.all(
       fields.map(async (field: any) => {
         const itemsRes = await fetch(
-          `${TSHEETS_BASE}/customfielditems?customfield_id=${field.id}`,
+          `${TSHEETS_BASE}/customfielditems?customfield_id=${field.id}&limit=200`,
           { headers }
         );
         const itemsData = await itemsRes.json();

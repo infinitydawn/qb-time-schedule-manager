@@ -73,6 +73,7 @@ interface ReviewContext {
   error: string | null;
   techIdByName: Record<string, string>;
   jobIdByName: Record<string, string>;
+  jobs: JobRef[];
   actions: ReviewActions;
   refresh: () => void;
 }
@@ -174,6 +175,8 @@ const DayCard: React.FC<DayCardProps> = ({
   }, [schedule.projectManagers, techIdByName]);
 
   const reviewActive = mode === 'review' && !collapsed && !!schedule.date;
+  // Any timesheet edit (on any card) reloads every open day, since entries can move between days
+  const timesheetsEpoch = reviewActions?.timesheetsEpoch ?? 0;
 
   useEffect(() => {
     if (!reviewActive) return;
@@ -201,7 +204,7 @@ const DayCard: React.FC<DayCardProps> = ({
       }
     })();
     return () => { cancelled = true; };
-  }, [reviewActive, schedule.date, reviewUserIdsKey, reviewNonce]);
+  }, [reviewActive, schedule.date, reviewUserIdsKey, reviewNonce, timesheetsEpoch]);
 
   const refreshReview = useCallback(() => setReviewNonce(n => n + 1), []);
 
@@ -214,6 +217,7 @@ const DayCard: React.FC<DayCardProps> = ({
         error: reviewError,
         techIdByName,
         jobIdByName,
+        jobs: jobRefs || [],
         actions: reviewActions,
         refresh: refreshReview,
       }
@@ -951,6 +955,7 @@ const JobRowEditor: React.FC<JobRowEditorProps> = ({
               error={review.error}
               techIdByName={review.techIdByName}
               jobId={review.jobIdByName[assignment.job.trim().toLowerCase()]}
+              jobs={review.jobs}
               actions={review.actions}
               onRefresh={review.refresh}
             />

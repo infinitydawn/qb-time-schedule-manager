@@ -15,6 +15,9 @@ export interface ReviewActions {
   /** Resolves true when a request was sent to QB (so callers can re-read timesheet states). */
   setApproval: (user: ReviewUser, date: string, action: ApprovalAction) => Promise<boolean>;
   toggleTechStatus: (user: ReviewUser) => Promise<void>;
+  /** Bumped whenever a timesheet is edited; every open day card reloads (an edit can move an entry to another day). */
+  timesheetsEpoch: number;
+  notifyTimesheetsChanged: () => void;
 }
 
 const fmtDate = (d: string) => {
@@ -32,6 +35,8 @@ const dayAfter = (date: string) => shiftDate(date, 1);
 export const useReviewActions = (): ReviewActions => {
   const [overrides, setOverrides] = useState<Record<string, ReviewUser>>({});
   const [pending, setPending] = useState<Record<string, PendingAction>>({});
+  const [timesheetsEpoch, setTimesheetsEpoch] = useState(0);
+  const notifyTimesheetsChanged = useCallback(() => setTimesheetsEpoch(n => n + 1), []);
 
   const startPending = (key: string, action: PendingAction) =>
     setPending(prev => ({ ...prev, [key]: action }));
@@ -104,5 +109,5 @@ export const useReviewActions = (): ReviewActions => {
     }
   }, []);
 
-  return { overrides, pending, setApproval, toggleTechStatus };
+  return { overrides, pending, setApproval, toggleTechStatus, timesheetsEpoch, notifyTimesheetsChanged };
 };

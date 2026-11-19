@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getQBHeaders, TSHEETS_BASE } from '@/utils/qbtoken';
+import { TimesheetCreate, TimesheetUpdate } from '@/types/review';
+import { jobcodeNamesFrom, mapTimesheet } from '@/utils/qbTimesheets';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+const ISO_WITH_OFFSET = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?[+-]\d{2}:\d{2}$/;
 
 interface TimesheetEntry {
   user_id: number;
@@ -14,9 +20,10 @@ interface TimesheetEntry {
 
 export async function POST(req: NextRequest) {
   try {
-    const { entries } = (await req.json()) as {
-      entries: TimesheetEntry[];
-    };
+    const body = (await req.json()) as { entries?: TimesheetEntry[]; create?: TimesheetCreate };
+    // Single entry from the Timesheet Editor (review mode)
+    if (body.create) return createOne(body.create);
+    const { entries } = body;
 
     if (!entries || entries.length === 0) {
       return NextResponse.json({ error: 'No timesheet entries provided' }, { status: 400 });
@@ -135,4 +142,103 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// ─── PUT /api/qbtime/timesheets  TimesheetUpdate ─────────────────────
+// Edits one existing timesheet (Timesheet Editor in review mode) and returns it re-read
+// from QB, so the caller sees the date it actually landed on.
+export async function PUT(req: NextRequest) {
+  try {
+    const body = (await req.json()) as TimesheetUpdate;
+    const id = String(body?.id || '');
+    if (!/^\d+$/.test(id)) {
+      return NextResponse.json({ error: 'A timesheet id is required' }, { status: 400 });
+    }
+
+    const update: Record<string, unknown> = { id: Number(id) };
+    if (body.start !== undefined) update.start = body.start;
+    if (body.end !== undefined) update.end = body.end;
+    if (body.date !== undefined) update.date = body.date;
+    if (body.duration !== undefined) update.duration = Math.round(Number(body.duration));
+    if (body.jobcodeId !== undefined) update.jobcode_id = Number(body.jobcodeId);
+    if (body.notes !== undefined) update.notes = body.notes;
+    if (body.customfields && Object.keys(body.customfields).length > 0) update.customfields = body.customfields;
+
+    if (update.start !== undefined && !ISO_WITH_OFFSET.test(String(update.start))) {
+      return NextResponse.json({ error: 'Time in must be an ISO 8601 date-time with offset' }, { status: 400 });
+    }
+    if (update.end !== undefined && update.end !== '' && !ISO_WITH_OFFSET.test(String(update.end))) {
+      return NextResponse.json({ error: 'Time out must be an ISO 8601 date-time with offset' }, { status: 400 });
+    }
+
+    const headers = getQBHeaders();
+    const res = await fetch(`${TSHEETS_BASE}/timesheets`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ data: [update] }),
+    });
+    const data = await res.json().catch(() => ({}));
+    const result = Object.values(data?.results?.timesheets || {})[0] as any;
+    if (!res.ok || !result || (result._status_code && result._status_code !== 200)) {
+      const msg = result?._status_message || data?.error?.message || `HTTP ${res.status}`;
+      const extra = result?._status_extra ? ` (${result._status_extra})` : '';
+      console.error('[timesheets PUT] QB rejected update', JSON.stringify({ update, status: res.status, data }));
+      return NextResponse.json({ error: `QuickBooks rejected the change: ${msg}${extra}` }, { status: 502 });
+    }
+
+    // Re-read so jobName / date / duration / state reflect what QB stored
+    const params = new URLSearchParams({ ids: id, on_the_clock: 'both' });
+    const getRes = await fetch(`${TSHEETS_BASE}/timesheets?${params}`, { headers });
+    const getData = await getRes.json().catch(() => ({}));
+    const raw = Object.values(getData?.results?.timesheets || {})[0] as any;
+    const source = raw || result;
+    const names = jobcodeNamesFrom(getData, jobcodeNamesFrom(data));
+    return NextResponse.json({ timesheet: mapTimesheet(source, names) });
+  } catch (err: any) {
+    console.error('QB Time Timesheet update error:', err);
+    return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
+  }
+}
+
+/** POST { create } — one regular (time in/out) entry; returns it re-read from QB. */
+async function createOne(c: TimesheetCreate) {
+  if (!/^\d+$/.test(String(c?.userId || '')) || !/^\d+$/.test(String(c?.jobcodeId || ''))) {
+    return NextResponse.json({ error: 'A tech and a job are required' }, { status: 400 });
+  }
+  if (!ISO_WITH_OFFSET.test(c.start || '') || !ISO_WITH_OFFSET.test(c.end || '')) {
+    return NextResponse.json({ error: 'Time in and time out must be ISO 8601 date-times with offset' }, { status: 400 });
+  }
+
+  const entry: Record<string, unknown> = {
+    user_id: Number(c.userId),
+    jobcode_id: Number(c.jobcodeId),
+    type: 'regular',
+    start: c.start,
+    end: c.end,
+    notes: c.notes || '',
+  };
+  const cf = Object.fromEntries(Object.entries(c.customfields || {}).filter(([, v]) => v !== ''));
+  if (Object.keys(cf).length > 0) entry.customfields = cf;
+
+  const headers = getQBHeaders();
+  const res = await fetch(`${TSHEETS_BASE}/timesheets`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ data: [entry] }),
+  });
+  const data = await res.json().catch(() => ({}));
+  const result = Object.values(data?.results?.timesheets || {})[0] as any;
+  if (!res.ok || !result || (result._status_code && result._status_code !== 200 && result._status_code !== 201)) {
+    const msg = result?._status_message || data?.error?.message || `HTTP ${res.status}`;
+    const extra = result?._status_extra ? ` (${result._status_extra})` : '';
+    console.error('[timesheets create] QB rejected entry', JSON.stringify({ entry, status: res.status, data }));
+    return NextResponse.json({ error: `QuickBooks rejected the entry: ${msg}${extra}` }, { status: 502 });
+  }
+
+  const params = new URLSearchParams({ ids: String(result.id), on_the_clock: 'both' });
+  const getRes = await fetch(`${TSHEETS_BASE}/timesheets?${params}`, { headers });
+  const getData = await getRes.json().catch(() => ({}));
+  const raw = Object.values(getData?.results?.timesheets || {})[0] as any;
+  const names = jobcodeNamesFrom(getData, jobcodeNamesFrom(data));
+  return NextResponse.json({ timesheet: mapTimesheet(raw || result, names) });
 }

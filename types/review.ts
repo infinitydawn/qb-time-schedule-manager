@@ -24,6 +24,38 @@ export interface ReviewTimesheet {
   state: string;
   duration: number; // seconds
   notes: string;
+  /** Custom field id → value (QB stores the item *name*, e.g. "INSTALLATION") */
+  customfields: Record<string, string>;
+  /** QB time zone code, e.g. "tsET" */
+  tzStr: string;
+  locked: boolean;
+  /** Tracked mileage for the entry, when QB reports it */
+  miles: number | null;
+}
+
+/** A new time in/out entry from the Timesheet Editor; sent as POST /api/qbtime/timesheets { create } */
+export interface TimesheetCreate {
+  userId: string;
+  jobcodeId: string;
+  /** ISO 8601 with offset */
+  start: string;
+  end: string;
+  notes: string;
+  customfields: Record<string, string>;
+}
+
+/** Fields the Timesheet Editor can change; sent to PUT /api/qbtime/timesheets */
+export interface TimesheetUpdate {
+  id: string;
+  /** regular entries: ISO 8601 with offset */
+  start?: string;
+  end?: string;
+  /** manual entries */
+  date?: string;
+  duration?: number;
+  jobcodeId?: string;
+  notes?: string;
+  customfields?: Record<string, string>;
 }
 
 export interface ReviewUser {
