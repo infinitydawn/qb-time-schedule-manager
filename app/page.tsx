@@ -152,13 +152,11 @@ export default function Home() {
   useEffect(() => {
     (async () => {
       let loaded: DailySchedule[] = [];
-      let loadedFromDb = false;
       try {
         const res = await fetch('/api/schedules');
         if (res.ok) {
           loaded = await res.json();
           setDbStatus('ok');
-          loadedFromDb = true;
         } else {
           throw new Error('DB fetch failed');
         }
@@ -166,30 +164,6 @@ export default function Home() {
         console.warn('DB unavailable, falling back to localStorage');
         loaded = loadSchedules();
         setDbStatus('error');
-      }
-
-      // Auto-cleanup: keep only the 10 newest entries when data came from DB.
-      // Use the DB `date` field when available, falling back to DB `createdAt`.
-      if (loadedFromDb && loaded.length > 10) {
-        const getTs = (s: DailySchedule) => {
-          const dateStr = (s.date && typeof s.date === 'string' && s.date.trim() !== '') ? s.date : (s.createdAt ?? '');
-          const ts = Date.parse(dateStr);
-          return isNaN(ts) ? 0 : ts;
-        };
-
-        // Sort ascending (oldest first) so the first N are the ones to remove.
-        const sortedAsc = [...loaded].sort((a, b) => getTs(a) - getTs(b));
-        const extrasCount = Math.max(0, loaded.length - 10);
-        const toDelete = sortedAsc.slice(0, extrasCount);
-        const deleteCount = toDelete.length;
-        const confirmed = await appConfirm(
-          `There are ${loaded.length} schedule entries. ${deleteCount} old entr${deleteCount === 1 ? 'y' : 'ies'} will be deleted to keep only the 10 newest.\n\nProceed?`,
-          { title: 'Delete old schedules?', confirmLabel: 'Delete old entries', cancelLabel: 'Keep all', danger: true }
-        );
-        if (confirmed) {
-          const deleteIds = new Set(toDelete.map(s => s.id));
-          loaded = loaded.filter(s => !deleteIds.has(s.id));
-        }
       }
 
       loaded = dedupeSchedulesByDate(loaded);
